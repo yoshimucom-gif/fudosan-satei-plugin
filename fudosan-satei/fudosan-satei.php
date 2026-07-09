@@ -2,7 +2,7 @@
 /**
  * Plugin Name: かんたん不動産AI査定
  * Description: 匿名の不動産価格査定フォーム。国交省「不動産情報ライブラリ」の実成約事例から参考価格レンジを算出し、結果をメール送信＋リード保存。ショートコード [fudosan_satei] をページに貼るだけ。
- * Version: 1.0.0
+ * Version: 1.0.2
  * Author: (運営者)
  * License: GPLv2 or later
  * Text Domain: fudosan-satei
@@ -14,23 +14,23 @@
 
 if (!defined('ABSPATH')) exit; // 直接アクセス禁止
 
-define('FS_VER', '1.0.0');
+define('FS_VER', '1.0.2');
 define('FS_OPT', 'fudosan_satei_options');
 define('FS_ENDPOINT', 'https://www.reinfolib.mlit.go.jp/ex-api/external/XIT001');
 
 /**
- * 自動更新（非公開GitHub）設定。
- * リポジトリに update.json と fudosan-satei.zip を push すると、WP管理画面に
- * 「更新可能」バッジが出てワンクリック更新できる（毎回の手動zipアップロード不要）。
- * 非公開リポジトリのため、各サイトの設定画面で GitHub トークンを入力する。
+ * 自動更新の置き場（update.json の URL）。
+ * ミカタのサーバー/WPサイト上のフォルダに update.json と fudosan-satei.zip を
+ * 置き、その update.json の URL をここに設定する。新バージョンを置くと WP管理画面に
+ * 「更新可能」バッジが出て、ワンクリック更新できる（各サイトへの手動配布は不要）。
+ * ※ 空なら自動更新は無効（手動アップロードでの運用は可能）。
  */
-define('FS_GH_OWNER', 'yoshimura-mikata');     // ← ミカタのGitHubアカウント/組織名
-define('FS_GH_REPO',  'fudosan-satei-plugin'); // ← リポジトリ名
+define('FS_UPDATE_URL', 'https://raw.githubusercontent.com/yoshimucom-gif/fudosan-satei-plugin/main/update.json');
 
-/* 自動更新チェッカー（管理画面のみ・トークン未設定なら無効） */
+/* 自動更新チェッカー（管理画面のみ・URL未設定なら無効） */
 if (is_admin()) {
     require_once __DIR__ . '/includes/plugin-updater.php';
-    new FS_Satei_Updater(__FILE__, FS_GH_OWNER, FS_GH_REPO, fs_opt('gh_token'));
+    new FS_Satei_Updater(__FILE__, FS_UPDATE_URL);
 }
 
 /* =========================================================================
@@ -82,7 +82,6 @@ function fs_sanitize_options($in) {
         'from_email'       => sanitize_email($in['from_email'] ?? get_option('admin_email')),
         'privacy_url'      => esc_url_raw($in['privacy_url'] ?? ''),
         'terms_url'        => esc_url_raw($in['terms_url'] ?? ''),
-        'gh_token'         => sanitize_text_field($in['gh_token'] ?? ''),
     );
 }
 
@@ -107,14 +106,6 @@ function fs_settings_page() { ?>
                     <p class="description">到達率のため WP Mail SMTP 等で SPF/DKIM を設定推奨。</p></td></tr>
                 <tr><th>プライバシーポリシーURL</th><td><input type="url" name="<?php echo FS_OPT; ?>[privacy_url]" value="<?php echo esc_attr(fs_opt('privacy_url')); ?>" size="50"></td></tr>
                 <tr><th>利用規約・免責URL</th><td><input type="url" name="<?php echo FS_OPT; ?>[terms_url]" value="<?php echo esc_attr(fs_opt('terms_url')); ?>" size="50"></td></tr>
-                <tr><th colspan="2"><hr><strong>自動更新（非公開GitHub）</strong></th></tr>
-                <tr><th>GitHubトークン</th><td>
-                    <input type="password" name="<?php echo FS_OPT; ?>[gh_token]" value="<?php echo esc_attr(fs_opt('gh_token')); ?>" size="50" autocomplete="off">
-                    <p class="description">
-                        非公開リポジトリ <code><?php echo esc_html(FS_GH_OWNER . '/' . FS_GH_REPO); ?></code> から自動更新を受け取るためのトークン。<br>
-                        GitHubの Fine-grained personal access token を、対象リポジトリの「Contents: Read-only」権限のみで発行し貼り付けてください。空欄なら自動更新は無効（手動アップロードは可）。
-                    </p>
-                </td></tr>
             </table>
             <?php submit_button(); ?>
         </form>
@@ -445,9 +436,10 @@ function fs_shortcode() {
     }
 
     $cities_json = wp_json_encode($cities);
+    $uid = 'fs-' . uniqid();
 
     ob_start(); ?>
-<div class="fs-wrap">
+<div class="fs-wrap" id="<?php echo esc_attr($uid); ?>">
   <style>
     .fs-wrap{--fs-brand:#1f6feb;--fs-ink:#1a1f36;--fs-muted:#6b7280;--fs-line:#e5e7eb;max-width:640px;margin:0 auto;color:var(--fs-ink);font-family:inherit;line-height:1.7}
     .fs-card{background:#fff;border:1px solid var(--fs-line);border-radius:14px;padding:22px 20px}
@@ -470,20 +462,20 @@ function fs_shortcode() {
     .fs-ok{color:#0a7d33;font-weight:600}
   </style>
 
-  <div class="fs-card" id="fs-form-card">
-    <div id="fs-errors"></div>
-    <form id="fs-form">
+  <div class="fs-card fs-form-card" id="fs-form-card">
+    <div class="fs-errors" id="fs-errors"></div>
+    <form class="fs-form" id="fs-form">
       <label>物件種別<span class="fs-req">必須</span></label>
       <select name="ptype" required><?php echo $ptype_options; ?></select>
 
       <div class="fs-row">
         <div>
           <label>都道府県<span class="fs-req">必須</span></label>
-          <select name="pref_code" id="fs-pref" required><?php echo $pref_options; ?></select>
+          <select class="fs-pref" name="pref_code" id="fs-pref" required><?php echo $pref_options; ?></select>
         </div>
         <div>
           <label>市区町村<span class="fs-req">必須</span></label>
-          <select name="city_code" id="fs-city" required><option value="">先に都道府県を選択</option></select>
+          <select class="fs-city" name="city_code" id="fs-city" required><option value="">先に都道府県を選択</option></select>
         </div>
       </div>
 
@@ -515,7 +507,7 @@ function fs_shortcode() {
         <label for="fs-mkt">売却に関するご提案・お役立ち情報のメール受け取りを希望します（任意）</label>
       </div>
 
-      <button type="submit" id="fs-submit">無料で査定結果を受け取る</button>
+      <button class="fs-submit" type="submit" id="fs-submit">無料で査定結果を受け取る</button>
     </form>
 
     <div class="fs-disc">
@@ -523,7 +515,7 @@ function fs_shortcode() {
     </div>
   </div>
 
-  <div class="fs-card" id="fs-result" style="display:none"></div>
+  <div class="fs-card fs-result" id="fs-result" style="display:none"></div>
 </div>
 
 <script>
@@ -531,11 +523,16 @@ function fs_shortcode() {
   var CITIES = <?php echo $cities_json; ?>;
   var AJAX = <?php echo wp_json_encode($ajax); ?>;
   var NONCE = <?php echo wp_json_encode($nonce); ?>;
-  var wrap = document.currentScript.closest('.fs-wrap');
-  var pref = wrap.querySelector('#fs-pref'), city = wrap.querySelector('#fs-city');
-  var form = wrap.querySelector('#fs-form'), errBox = wrap.querySelector('#fs-errors');
-  var formCard = wrap.querySelector('#fs-form-card'), resultCard = wrap.querySelector('#fs-result');
-  var btn = wrap.querySelector('#fs-submit');
+  var WRAP_ID = <?php echo wp_json_encode($uid); ?>;
+
+  function init(){
+  var wrap = document.getElementById(WRAP_ID);
+  if (!wrap || wrap.getAttribute('data-fs-init')) return;
+  wrap.setAttribute('data-fs-init', '1');
+  var pref = wrap.querySelector('.fs-pref'), city = wrap.querySelector('.fs-city');
+  var form = wrap.querySelector('.fs-form'), errBox = wrap.querySelector('.fs-errors');
+  var formCard = wrap.querySelector('.fs-form-card'), resultCard = wrap.querySelector('.fs-result');
+  var btn = wrap.querySelector('.fs-submit');
 
   pref.addEventListener('change', function(){
     var list = CITIES[pref.value] || [];
@@ -593,6 +590,12 @@ function fs_shortcode() {
     formCard.style.display = 'none';
     resultCard.style.display = 'block';
     resultCard.scrollIntoView({ behavior:'smooth', block:'start' });
+  }
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else {
+    init();
   }
 })();
 </script>
