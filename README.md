@@ -4,6 +4,8 @@
 参考価格レンジを算出し、結果をメール送信＋リード保存する。ショートコード
 `[fudosan_satei]` をページに貼るだけ。**GitHub経由の自動更新に対応**。
 
+配信リポジトリ: https://github.com/yoshimucom-gif/fudosan-satei-plugin （公開）
+
 ## リポジトリ構成
 
 ```
