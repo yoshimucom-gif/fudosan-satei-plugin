@@ -19,17 +19,18 @@ define('FS_OPT', 'fudosan_satei_options');
 define('FS_ENDPOINT', 'https://www.reinfolib.mlit.go.jp/ex-api/external/XIT001');
 
 /**
- * 自動更新サーバーの update.json の URL。
- * ここに新バージョン情報を置くと、WP管理画面に「更新可能」バッジが出て
- * ワンクリック更新できる（毎回の手動zipアップロード不要）。
- * ※ 置き場が決まったら差し替え（GitHub Raw / 自社サーバー等）。空なら自動更新は無効。
+ * 自動更新（非公開GitHub）設定。
+ * リポジトリに update.json と fudosan-satei.zip を push すると、WP管理画面に
+ * 「更新可能」バッジが出てワンクリック更新できる（毎回の手動zipアップロード不要）。
+ * 非公開リポジトリのため、各サイトの設定画面で GitHub トークンを入力する。
  */
-define('FS_UPDATE_URL', 'https://raw.githubusercontent.com/yoshimucom-gif/fudosan-satei-plugin/main/update.json');
+define('FS_GH_OWNER', 'yoshimura-mikata');     // ← ミカタのGitHubアカウント/組織名
+define('FS_GH_REPO',  'fudosan-satei-plugin'); // ← リポジトリ名
 
-/* 自動更新チェッカー（管理画面のみ） */
+/* 自動更新チェッカー（管理画面のみ・トークン未設定なら無効） */
 if (is_admin()) {
     require_once __DIR__ . '/includes/plugin-updater.php';
-    new FS_Satei_Updater(__FILE__, FS_UPDATE_URL);
+    new FS_Satei_Updater(__FILE__, FS_GH_OWNER, FS_GH_REPO, fs_opt('gh_token'));
 }
 
 /* =========================================================================
@@ -81,6 +82,7 @@ function fs_sanitize_options($in) {
         'from_email'       => sanitize_email($in['from_email'] ?? get_option('admin_email')),
         'privacy_url'      => esc_url_raw($in['privacy_url'] ?? ''),
         'terms_url'        => esc_url_raw($in['terms_url'] ?? ''),
+        'gh_token'         => sanitize_text_field($in['gh_token'] ?? ''),
     );
 }
 
@@ -105,6 +107,14 @@ function fs_settings_page() { ?>
                     <p class="description">到達率のため WP Mail SMTP 等で SPF/DKIM を設定推奨。</p></td></tr>
                 <tr><th>プライバシーポリシーURL</th><td><input type="url" name="<?php echo FS_OPT; ?>[privacy_url]" value="<?php echo esc_attr(fs_opt('privacy_url')); ?>" size="50"></td></tr>
                 <tr><th>利用規約・免責URL</th><td><input type="url" name="<?php echo FS_OPT; ?>[terms_url]" value="<?php echo esc_attr(fs_opt('terms_url')); ?>" size="50"></td></tr>
+                <tr><th colspan="2"><hr><strong>自動更新（非公開GitHub）</strong></th></tr>
+                <tr><th>GitHubトークン</th><td>
+                    <input type="password" name="<?php echo FS_OPT; ?>[gh_token]" value="<?php echo esc_attr(fs_opt('gh_token')); ?>" size="50" autocomplete="off">
+                    <p class="description">
+                        非公開リポジトリ <code><?php echo esc_html(FS_GH_OWNER . '/' . FS_GH_REPO); ?></code> から自動更新を受け取るためのトークン。<br>
+                        GitHubの Fine-grained personal access token を、対象リポジトリの「Contents: Read-only」権限のみで発行し貼り付けてください。空欄なら自動更新は無効（手動アップロードは可）。
+                    </p>
+                </td></tr>
             </table>
             <?php submit_button(); ?>
         </form>

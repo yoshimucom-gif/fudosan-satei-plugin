@@ -1,12 +1,11 @@
 {
   "name": "かんたん不動産AI査定",
   "version": "1.0.0",
-  "download_url": "https://raw.githubusercontent.com/yoshimucom-gif/fudosan-satei-plugin/main/fudosan-satei.zip",
   "requires": "5.8",
   "tested": "6.7",
   "requires_php": "7.4",
-  "author": "(運営者)",
-  "homepage": "https://github.com/yoshimucom-gif/fudosan-satei-plugin",
+  "author": "ミカタ株式会社",
+  "homepage": "https://github.com/yoshimura-mikata/fudosan-satei-plugin",
   "sections": {
     "changelog": "1.0.0\n初版リリース。"
   }

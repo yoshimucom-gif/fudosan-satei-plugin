@@ -1,28 +1,23 @@
 <?php
 /**
- * かんたん不動産AI査定 — プラグイン自動更新チェッカー
+ * かんたん不動産AI査定 — プラグイン自動更新チェッカー（非公開GitHub対応）
  *
- * 更新サーバー(JSON)を WordPress の更新サーバーとして使い、標準の
+ * 非公開(private)のGitHubリポジトリを更新サーバーとして使い、標準の
  * 「プラグイン更新」フローに組み込む。管理画面に「更新可能」バッジが出て、
  * ワンクリックで zip 取得・展開できる（毎回の手動アップロード不要）。
  *
- * 動作:
- *   1. WP が定期的に pre_set_site_transient_update_plugins を叩く
- *   2. 本クラスが更新サーバーから JSON を取得し、ヘッダーバージョンと比較
- *   3. 新しければ transient->response に追加 → 「更新可能」バッジ表示
- *   4. ユーザーが「更新」クリック → WP が download_url から zip 取得・展開
+ * 配信モデル（push だけで全サイト更新）:
+ *   リポジトリに次の2ファイルを置き、git push するだけ。
+ *     - update.json          … 最新バージョン情報
+ *     - fudosan-satei.zip     … 配布本体
  *
- * 更新サーバーの JSON 例（update.json）:
- *   {
- *     "name": "かんたん不動産AI査定",
- *     "version": "1.0.1",
- *     "download_url": "https://.../fudosan-satei.zip",
- *     "requires": "5.8",
- *     "tested": "6.7",
- *     "requires_php": "7.4",
- *     "homepage": "https://...",
- *     "sections": { "changelog": "・○○を修正 ..." }
- *   }
+ * 認証:
+ *   GitHub Contents API を Personal Access Token で叩く。
+ *   トークンはコードに埋め込まず、各サイトのWP設定（DB）に保存する。
+ *   → 公開リポジトリにコードが出ないので、非公開のまま運用できる。
+ *
+ * 必要トークン: リポジトリの「Contents: Read-only」権限のみ
+ *   （Fine-grained PAT を対象リポジトリだけに絞るのが安全）。
  */
 
 if (!defined('ABSPATH')) exit;
@@ -33,37 +28,76 @@ class FS_Satei_Updater {
     private $plugin_file;
     private $plugin_slug;
     private $plugin_basename;
-    private $update_url;
+    private $owner;
+    private $repo;
+    private $branch;
+    private $asset;      // 配布zipのファイル名
+    private $token;
+    private $api_base;   // https://api.github.com/repos/{owner}/{repo}
     private $cache_key;
     private $cache_ttl;
 
-    public function __construct($plugin_file, $update_url, $cache_ttl = 1800) {
+    public function __construct($plugin_file, $owner, $repo, $token, $asset = 'fudosan-satei.zip', $branch = 'main', $cache_ttl = 1800) {
         $this->plugin_file     = $plugin_file;
         $this->plugin_basename = plugin_basename($plugin_file);
         $this->plugin_slug     = dirname($this->plugin_basename);
-        $this->update_url      = $update_url;
+        $this->owner           = $owner;
+        $this->repo            = $repo;
+        $this->token           = $token;
+        $this->asset           = $asset;
+        $this->branch          = $branch;
+        $this->api_base        = 'https://api.github.com/repos/' . $owner . '/' . $repo;
         $this->cache_key       = 'fs_satei_updater_' . md5($this->plugin_basename);
         $this->cache_ttl       = (int)$cache_ttl;
 
         add_filter('pre_set_site_transient_update_plugins', array($this, 'check_for_update'));
         add_filter('plugins_api',                            array($this, 'plugins_api_filter'), 10, 3);
         add_action('upgrader_process_complete',              array($this, 'purge_cache'), 10, 2);
+        add_filter('http_request_args',                      array($this, 'authorize_download'), 10, 2);
     }
 
-    /** 更新サーバーから最新メタ情報を取得（キャッシュあり） */
+    /** 配布zipのダウンロードURL（Contents API・raw） */
+    private function package_url() {
+        return $this->api_base . '/contents/' . rawurlencode($this->asset) . '?ref=' . rawurlencode($this->branch);
+    }
+
+    /** WPがpackageをダウンロードする際、対象URLにだけ認証ヘッダーを付与する */
+    public function authorize_download($args, $url) {
+        if (empty($this->token)) return $args;
+        if (strpos($url, $this->api_base . '/contents/' . rawurlencode($this->asset)) !== 0) return $args;
+        if (!isset($args['headers']) || !is_array($args['headers'])) $args['headers'] = array();
+        $args['headers']['Authorization']       = 'Bearer ' . $this->token;
+        $args['headers']['Accept']              = 'application/vnd.github.raw';
+        $args['headers']['User-Agent']          = 'fudosan-satei-updater';
+        $args['headers']['X-GitHub-Api-Version']= '2022-11-28';
+        return $args;
+    }
+
+    /** GitHub Contents API から生ファイルを取得 */
+    private function gh_get_raw($path) {
+        if (empty($this->token)) return null;
+        $res = wp_remote_get($this->api_base . $path, array(
+            'timeout' => 10,
+            'headers' => array(
+                'Authorization'        => 'Bearer ' . $this->token,
+                'Accept'               => 'application/vnd.github.raw',
+                'User-Agent'           => 'fudosan-satei-updater',
+                'X-GitHub-Api-Version' => '2022-11-28',
+            ),
+        ));
+        if (is_wp_error($res)) return null;
+        if ((int)wp_remote_retrieve_response_code($res) !== 200) return null;
+        return wp_remote_retrieve_body($res);
+    }
+
+    /** update.json を取得（キャッシュあり） */
     private function fetch_remote_info() {
-        if (empty($this->update_url)) return null;
         $cached = get_transient($this->cache_key);
         if ($cached !== false) return $cached;
 
-        $response = wp_remote_get($this->update_url, array(
-            'timeout' => 10,
-            'headers' => array('Accept' => 'application/json'),
-        ));
-        if (is_wp_error($response)) return null;
-        if ((int)wp_remote_retrieve_response_code($response) !== 200) return null;
-
-        $data = json_decode(wp_remote_retrieve_body($response));
+        $body = $this->gh_get_raw('/contents/update.json?ref=' . rawurlencode($this->branch));
+        if (!$body) return null;
+        $data = json_decode($body);
         if (!is_object($data) || empty($data->version)) return null;
 
         set_transient($this->cache_key, $data, $this->cache_ttl);
@@ -87,7 +121,7 @@ class FS_Satei_Updater {
                 'plugin'       => $this->plugin_basename,
                 'new_version'  => $remote->version,
                 'url'          => isset($remote->homepage) ? $remote->homepage : '',
-                'package'      => isset($remote->download_url) ? $remote->download_url : '',
+                'package'      => $this->package_url(),
                 'tested'       => isset($remote->tested) ? $remote->tested : '',
                 'requires'     => isset($remote->requires) ? $remote->requires : '',
                 'requires_php' => isset($remote->requires_php) ? $remote->requires_php : '',
@@ -130,7 +164,7 @@ class FS_Satei_Updater {
             'requires'     => isset($remote->requires) ? $remote->requires : '',
             'requires_php' => isset($remote->requires_php) ? $remote->requires_php : '',
             'author'       => isset($remote->author) ? $remote->author : '',
-            'download_link'=> isset($remote->download_url) ? $remote->download_url : '',
+            'download_link'=> $this->package_url(),
             'sections'     => isset($remote->sections) ? (array)$remote->sections : array(),
             'banners'      => array(),
         );
