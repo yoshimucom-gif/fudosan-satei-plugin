@@ -1,6 +1,6 @@
 {
   "name": "かんたん不動産AI査定",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "download_url": "https://raw.githubusercontent.com/yoshimucom-gif/fudosan-satei-plugin/main/fudosan-satei.zip",
   "requires": "5.8",
   "tested": "6.7",
@@ -8,6 +8,6 @@
   "author": "ミカタ株式会社",
   "homepage": "https://github.com/yoshimucom-gif/fudosan-satei-plugin",
   "sections": {
-    "changelog": "1.0.3\n・フォームの文字サイズを拡大（見やすさ改善）"
+    "changelog": "1.0.4\n・市区町村を全国対応（47都道府県1920市区町村） ・最寄駅名/間取りの入力を追加 ・フォントを全体的に拡大"
   }
 }

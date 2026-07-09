@@ -2,7 +2,7 @@
 /**
  * Plugin Name: かんたん不動産AI査定
  * Description: 匿名の不動産価格査定フォーム。国交省「不動産情報ライブラリ」の実成約事例から参考価格レンジを算出し、結果をメール送信＋リード保存。ショートコード [fudosan_satei] をページに貼るだけ。
- * Version: 1.0.3
+ * Version: 1.0.4
  * Author: (運営者)
  * License: GPLv2 or later
  * Text Domain: fudosan-satei
@@ -14,7 +14,7 @@
 
 if (!defined('ABSPATH')) exit; // 直接アクセス禁止
 
-define('FS_VER', '1.0.3');
+define('FS_VER', '1.0.4');
 define('FS_OPT', 'fudosan_satei_options');
 define('FS_ENDPOINT', 'https://www.reinfolib.mlit.go.jp/ex-api/external/XIT001');
 
@@ -47,12 +47,22 @@ function fs_activate() {
         email VARCHAR(191) NOT NULL,
         pref VARCHAR(50), city VARCHAR(50), ptype VARCHAR(20),
         area FLOAT, build_year INT, station_min INT,
+        station_name VARCHAR(100), floor_plan VARCHAR(30),
         low BIGINT, mid BIGINT, high BIGINT,
         sample_size INT, marketing_opt_in TINYINT(1) DEFAULT 0,
         PRIMARY KEY (id)
     ) $charset;";
     require_once ABSPATH . 'wp-admin/includes/upgrade.php';
     dbDelta($sql);
+}
+
+/* 自動更新でバージョンが上がったらテーブル定義を追従（新カラム追加等） */
+add_action('plugins_loaded', 'fs_maybe_upgrade');
+function fs_maybe_upgrade() {
+    if (get_option('fs_db_ver') !== FS_VER) {
+        fs_activate();
+        update_option('fs_db_ver', FS_VER);
+    }
 }
 
 /* =========================================================================
@@ -117,32 +127,32 @@ function fs_leads_page() {
     $table = $wpdb->prefix . 'fudosan_satei_leads';
     $rows = $wpdb->get_results("SELECT * FROM $table ORDER BY id DESC LIMIT 200");
     echo '<div class="wrap"><h1>査定リード一覧（最新200件）</h1><table class="widefat striped"><thead><tr>';
-    echo '<th>日時</th><th>メール</th><th>所在地</th><th>種別</th><th>面積</th><th>築年</th><th>レンジ(万円)</th><th>事例数</th><th>営業可</th></tr></thead><tbody>';
+    echo '<th>日時</th><th>メール</th><th>所在地</th><th>種別</th><th>面積</th><th>間取り</th><th>築年</th><th>最寄駅</th><th>レンジ(万円)</th><th>事例数</th><th>営業可</th></tr></thead><tbody>';
     if ($rows) foreach ($rows as $r) {
-        printf('<tr><td>%s</td><td>%s</td><td>%s %s</td><td>%s</td><td>%s㎡</td><td>%s</td><td>%s〜%s</td><td>%s</td><td>%s</td></tr>',
+        $st = trim((isset($r->station_name) ? $r->station_name : '') . (!empty($r->station_min) ? " 徒歩{$r->station_min}分" : ''));
+        printf('<tr><td>%s</td><td>%s</td><td>%s %s</td><td>%s</td><td>%s㎡</td><td>%s</td><td>%s</td><td>%s</td><td>%s〜%s</td><td>%s</td><td>%s</td></tr>',
             esc_html($r->created_at), esc_html($r->email), esc_html($r->pref), esc_html($r->city),
-            esc_html($r->ptype), esc_html($r->area), esc_html($r->build_year ?: '-'),
+            esc_html($r->ptype), esc_html($r->area), esc_html((isset($r->floor_plan) && $r->floor_plan !== '') ? $r->floor_plan : '-'), esc_html($r->build_year ?: '-'),
+            esc_html($st !== '' ? $st : '-'),
             $r->low ? number_format($r->low/10000) : '-', $r->high ? number_format($r->high/10000) : '-',
             esc_html($r->sample_size), $r->marketing_opt_in ? '○' : '');
-    } else echo '<tr><td colspan="9">まだありません</td></tr>';
+    } else echo '<tr><td colspan="11">まだありません</td></tr>';
     echo '</tbody></table></div>';
 }
 
 /* =========================================================================
- * 3. 都道府県・市区町村（デモ用プリセット。全国対応は市区町村一覧API/XIT002へ）
+ * 3. 都道府県・市区町村（国交省XIT002より生成した全国マスタ includes/jp-cities.php）
  * ======================================================================= */
-function fs_prefs() {
-    return array('13' => '東京都', '14' => '神奈川県', '27' => '大阪府', '23' => '愛知県', '40' => '福岡県');
+function fs_jp_data() {
+    static $d = null;
+    if ($d === null) {
+        $d = @include __DIR__ . '/includes/jp-cities.php';
+        if (!is_array($d) || empty($d['prefs'])) $d = array('prefs' => array(), 'cities' => array());
+    }
+    return $d;
 }
-function fs_cities() {
-    return array(
-        '13' => array(array('13101','千代田区'),array('13103','港区'),array('13104','新宿区'),array('13110','目黒区'),array('13112','世田谷区'),array('13113','渋谷区'),array('13115','杉並区'),array('13116','豊島区'),array('13120','練馬区'),array('13201','八王子市'),array('13203','武蔵野市')),
-        '14' => array(array('14103','横浜市西区'),array('14104','横浜市中区'),array('14131','川崎市川崎区'),array('14201','横須賀市'),array('14204','鎌倉市'),array('14205','藤沢市')),
-        '27' => array(array('27127','大阪市北区'),array('27128','大阪市中央区'),array('27140','堺市堺区'),array('27203','豊中市'),array('27207','吹田市')),
-        '23' => array(array('23106','名古屋市昭和区'),array('23113','名古屋市名東区'),array('23201','豊橋市')),
-        '40' => array(array('40131','福岡市博多区'),array('40133','福岡市中央区'),array('40203','北九州市門司区')),
-    );
-}
+function fs_prefs()  { return fs_jp_data()['prefs']; }
+function fs_cities() { return fs_jp_data()['cities']; }
 function fs_city_name($pref, $code) {
     foreach (fs_cities()[$pref] ?? array() as $c) if ($c[0] === $code) return $c[1];
     return $code;
@@ -318,7 +328,10 @@ function fs_mail_body($ctx) {
         "■ 所在地   : {$ctx['pref']} {$ctx['city']}",
         "■ 面積     : {$ctx['area']} ㎡",
     );
+    if (!empty($ctx['floor_plan'])) $lines[] = "■ 間取り   : {$ctx['floor_plan']}";
     if (!empty($ctx['build_year'])) $lines[] = "■ 築年     : {$ctx['build_year']}年";
+    $st = trim((!empty($ctx['station_name']) ? $ctx['station_name'] : '') . (!empty($ctx['station_min']) ? " 徒歩{$ctx['station_min']}分" : ''));
+    if ($st !== '') $lines[] = "■ 最寄駅   : {$st}";
     $lines = array_merge($lines, array(
         "",
         "─────────────────────",
@@ -355,6 +368,8 @@ function fs_ajax() {
     $area  = floatval($_POST['area'] ?? 0);
     $byear = ($_POST['build_year'] ?? '') !== '' ? intval($_POST['build_year']) : null;
     $smin  = ($_POST['station_min'] ?? '') !== '' ? intval($_POST['station_min']) : null;
+    $sname = sanitize_text_field($_POST['station_name'] ?? '');
+    $fplan = sanitize_text_field($_POST['floor_plan'] ?? '');
     $agree = !empty($_POST['agree']);
     $mkt   = !empty($_POST['marketing']);
 
@@ -378,6 +393,7 @@ function fs_ajax() {
         'created_at' => current_time('mysql'), 'email' => $email,
         'pref' => $pref_name, 'city' => $city_name, 'ptype' => $ptype,
         'area' => $area, 'build_year' => $byear, 'station_min' => $smin,
+        'station_name' => $sname, 'floor_plan' => $fplan,
         'low' => $res['low'] ?? null, 'mid' => $res['mid'] ?? null, 'high' => $res['high'] ?? null,
         'sample_size' => $res['sample_size'] ?? 0, 'marketing_opt_in' => $mkt ? 1 : 0,
     ));
@@ -390,6 +406,7 @@ function fs_ajax() {
 
     $ctx = array(
         'ptype_label' => $label, 'pref' => $pref_name, 'city' => $city_name, 'area' => $area, 'build_year' => $byear,
+        'station_name' => $sname, 'station_min' => $smin, 'floor_plan' => $fplan,
         'low_man' => fs_yen_man($res['low']), 'mid_man' => fs_yen_man($res['mid']), 'high_man' => fs_yen_man($res['high']),
         'reason' => $res['reason'],
     );
@@ -402,6 +419,7 @@ function fs_ajax() {
         'ok' => true, 'mail_ok' => (bool)$mail_ok, 'email' => $email,
         'ptype_label' => $label, 'pref' => $pref_name, 'city' => $city_name,
         'area' => $area, 'build_year' => $byear, 'station_min' => $smin,
+        'station_name' => $sname, 'floor_plan' => $fplan,
         'low_man' => $ctx['low_man'], 'mid_man' => $ctx['mid_man'], 'high_man' => $ctx['high_man'],
         'sample_size' => $res['sample_size'], 'reason' => $res['reason'],
     ));
@@ -435,24 +453,24 @@ function fs_shortcode() {
         $agree_label = $p . 'および' . $t . 'に同意します（必須）';
     }
 
-    $cities_json = wp_json_encode($cities);
+    $cities_json = wp_json_encode($cities, JSON_UNESCAPED_UNICODE);
     $uid = 'fs-' . uniqid();
 
     ob_start(); ?>
 <div class="fs-wrap" id="<?php echo esc_attr($uid); ?>">
   <style>
-    .fs-wrap{--fs-brand:#1f6feb;--fs-ink:#1a1f36;--fs-muted:#6b7280;--fs-line:#e5e7eb;max-width:640px;margin:0 auto;color:var(--fs-ink);font-family:inherit;line-height:1.7}
+    .fs-wrap{--fs-brand:#1f6feb;--fs-ink:#1a1f36;--fs-muted:#6b7280;--fs-line:#e5e7eb;max-width:680px;margin:0 auto;color:var(--fs-ink);font-family:inherit;line-height:1.75;font-size:1.05rem}
     .fs-card{background:#fff;border:1px solid var(--fs-line);border-radius:14px;padding:22px 20px}
-    .fs-wrap label{display:block;font-weight:600;margin:16px 0 6px;font-size:1.08rem}
+    .fs-wrap label{display:block;font-weight:600;margin:18px 0 7px;font-size:1.18rem}
     .fs-req{color:#c0392b;font-size:.85rem;margin-left:4px}
-    .fs-wrap input,.fs-wrap select{width:100%;padding:13px 14px;border:1px solid #cbd5e1;border-radius:9px;font-size:1.1rem;background:#fff;box-sizing:border-box}
+    .fs-wrap input,.fs-wrap select{width:100%;padding:14px 15px;border:1px solid #cbd5e1;border-radius:9px;font-size:1.15rem;background:#fff;box-sizing:border-box}
     .fs-row{display:flex;gap:12px}.fs-row>div{flex:1}
-    .fs-hint{color:var(--fs-muted);font-size:.9rem;margin-top:4px}
+    .fs-hint{color:var(--fs-muted);font-size:.95rem;margin-top:5px}
     .fs-check{display:flex;gap:9px;align-items:flex-start;margin-top:14px}
-    .fs-check input{width:auto;margin-top:5px}.fs-check label{margin:0;font-weight:400;font-size:1rem}
-    .fs-wrap button{margin-top:22px;width:100%;background:var(--fs-brand);color:#fff;border:0;border-radius:10px;padding:15px;font-size:1.05rem;font-weight:700;cursor:pointer}
+    .fs-check input{width:auto;margin-top:6px;transform:scale(1.2)}.fs-check label{margin:0;font-weight:400;font-size:1.05rem}
+    .fs-wrap button{margin-top:24px;width:100%;background:var(--fs-brand);color:#fff;border:0;border-radius:10px;padding:17px;font-size:1.2rem;font-weight:700;cursor:pointer}
     .fs-wrap button:disabled{opacity:.6;cursor:wait}
-    .fs-disc{background:#fff8e6;border:1px solid #f0e0a8;border-radius:10px;padding:14px 16px;font-size:.9rem;color:#6b5a12;margin-top:18px}
+    .fs-disc{background:#fff8e6;border:1px solid #f0e0a8;border-radius:10px;padding:15px 17px;font-size:.95rem;color:#6b5a12;margin-top:18px}
     .fs-err{background:#fdecea;border:1px solid #f5c6cb;color:#c0392b;padding:10px 12px;border-radius:9px;margin-bottom:10px;font-size:.9rem}
     .fs-price{font-size:1.9rem;font-weight:800;color:var(--fs-brand);text-align:center;margin:6px 0}
     .fs-mid{text-align:center;color:var(--fs-muted);font-size:.9rem}
@@ -492,8 +510,25 @@ function fs_shortcode() {
         </div>
       </div>
 
-      <label>最寄駅まで徒歩（分）<span class="fs-hint" style="font-weight:400">任意</span></label>
-      <input type="number" name="station_min" min="0" max="60" placeholder="例：8">
+      <div class="fs-row">
+        <div>
+          <label>最寄駅<span class="fs-hint" style="font-weight:400">任意</span></label>
+          <input type="text" name="station_name" placeholder="例：渋谷駅">
+        </div>
+        <div>
+          <label>駅まで徒歩（分）<span class="fs-hint" style="font-weight:400">任意</span></label>
+          <input type="number" name="station_min" min="0" max="60" placeholder="例：8">
+        </div>
+      </div>
+
+      <label>間取り<span class="fs-hint" style="font-weight:400">任意</span></label>
+      <select name="floor_plan">
+        <option value="">選択しない</option>
+        <option>1R</option><option>1K</option><option>1DK</option><option>1LDK</option>
+        <option>2K</option><option>2DK</option><option>2LDK</option>
+        <option>3K</option><option>3DK</option><option>3LDK</option>
+        <option>4LDK以上</option>
+      </select>
 
       <label>結果をお届けするメールアドレス<span class="fs-req">必須</span></label>
       <input type="email" name="email" placeholder="you@example.com" required>
@@ -568,11 +603,13 @@ function fs_shortcode() {
     var disc = '<div class="fs-disc">本結果はAIによる簡易的な<strong>参考価格（価格査定）</strong>であり、不動産鑑定士による<strong>鑑定評価ではありません</strong>。過去の周辺取引事例からの機械的な推定値で、実際の売却価格・成約価格を保証するものではありません。正確な価格には現地確認を含む個別査定が必要です。</div>';
     var html;
     if (d.ok) {
+      var st = (d.station_name ? esc(d.station_name) : '') + (d.station_min ? ' 徒歩'+esc(d.station_min)+'分' : '');
       var rows = '<tr><th>物件種別</th><td>'+esc(d.ptype_label)+'</td></tr>'
         + '<tr><th>所在地</th><td>'+esc(d.pref)+' '+esc(d.city)+'</td></tr>'
         + '<tr><th>面積</th><td>'+esc(d.area)+' ㎡</td></tr>'
+        + (d.floor_plan ? '<tr><th>間取り</th><td>'+esc(d.floor_plan)+'</td></tr>' : '')
         + (d.build_year ? '<tr><th>築年</th><td>'+esc(d.build_year)+'年</td></tr>' : '')
-        + (d.station_min ? '<tr><th>最寄駅</th><td>徒歩'+esc(d.station_min)+'分</td></tr>' : '');
+        + (st.trim() ? '<tr><th>最寄駅</th><td>'+st+'</td></tr>' : '');
       html = '<h3 style="margin-top:0">査定結果</h3>'
         + '<p>ご入力の条件に基づく<strong>参考価格</strong>は以下の通りです。</p>'
         + '<div class="fs-price">'+esc(d.low_man)+' 〜 '+esc(d.high_man)+'</div>'
