@@ -2,7 +2,7 @@
 /**
  * Plugin Name: かんたん不動産AI査定
  * Description: 匿名の不動産価格査定フォーム。国交省「不動産情報ライブラリ」の実成約事例から参考価格レンジを算出し、結果をメール送信＋リード保存。ショートコード [fudosan_satei] をページに貼るだけ。
- * Version: 1.0.2
+ * Version: 1.0.3
  * Author: (運営者)
  * License: GPLv2 or later
  * Text Domain: fudosan-satei
@@ -14,7 +14,7 @@
 
 if (!defined('ABSPATH')) exit; // 直接アクセス禁止
 
-define('FS_VER', '1.0.2');
+define('FS_VER', '1.0.3');
 define('FS_OPT', 'fudosan_satei_options');
 define('FS_ENDPOINT', 'https://www.reinfolib.mlit.go.jp/ex-api/external/XIT001');
 
@@ -443,16 +443,16 @@ function fs_shortcode() {
   <style>
     .fs-wrap{--fs-brand:#1f6feb;--fs-ink:#1a1f36;--fs-muted:#6b7280;--fs-line:#e5e7eb;max-width:640px;margin:0 auto;color:var(--fs-ink);font-family:inherit;line-height:1.7}
     .fs-card{background:#fff;border:1px solid var(--fs-line);border-radius:14px;padding:22px 20px}
-    .fs-wrap label{display:block;font-weight:600;margin:14px 0 5px;font-size:.93rem}
-    .fs-req{color:#c0392b;font-size:.8rem;margin-left:4px}
-    .fs-wrap input,.fs-wrap select{width:100%;padding:11px 12px;border:1px solid #cbd5e1;border-radius:9px;font-size:1rem;background:#fff;box-sizing:border-box}
+    .fs-wrap label{display:block;font-weight:600;margin:16px 0 6px;font-size:1.08rem}
+    .fs-req{color:#c0392b;font-size:.85rem;margin-left:4px}
+    .fs-wrap input,.fs-wrap select{width:100%;padding:13px 14px;border:1px solid #cbd5e1;border-radius:9px;font-size:1.1rem;background:#fff;box-sizing:border-box}
     .fs-row{display:flex;gap:12px}.fs-row>div{flex:1}
-    .fs-hint{color:var(--fs-muted);font-size:.8rem;margin-top:4px}
+    .fs-hint{color:var(--fs-muted);font-size:.9rem;margin-top:4px}
     .fs-check{display:flex;gap:9px;align-items:flex-start;margin-top:14px}
-    .fs-check input{width:auto;margin-top:5px}.fs-check label{margin:0;font-weight:400;font-size:.9rem}
+    .fs-check input{width:auto;margin-top:5px}.fs-check label{margin:0;font-weight:400;font-size:1rem}
     .fs-wrap button{margin-top:22px;width:100%;background:var(--fs-brand);color:#fff;border:0;border-radius:10px;padding:15px;font-size:1.05rem;font-weight:700;cursor:pointer}
     .fs-wrap button:disabled{opacity:.6;cursor:wait}
-    .fs-disc{background:#fff8e6;border:1px solid #f0e0a8;border-radius:10px;padding:14px 16px;font-size:.82rem;color:#6b5a12;margin-top:18px}
+    .fs-disc{background:#fff8e6;border:1px solid #f0e0a8;border-radius:10px;padding:14px 16px;font-size:.9rem;color:#6b5a12;margin-top:18px}
     .fs-err{background:#fdecea;border:1px solid #f5c6cb;color:#c0392b;padding:10px 12px;border-radius:9px;margin-bottom:10px;font-size:.9rem}
     .fs-price{font-size:1.9rem;font-weight:800;color:var(--fs-brand);text-align:center;margin:6px 0}
     .fs-mid{text-align:center;color:var(--fs-muted);font-size:.9rem}
