@@ -2,7 +2,7 @@
 /**
  * Plugin Name: かんたん不動産AI査定
  * Description: 匿名の不動産価格査定フォーム。国交省「不動産情報ライブラリ」の実成約事例から参考価格レンジを算出し、結果をメール送信＋リード保存。ショートコード [fudosan_satei] をページに貼るだけ。
- * Version: 1.4.1
+ * Version: 1.4.2
  * Author: (運営者)
  * License: GPLv2 or later
  * Text Domain: fudosan-satei
@@ -14,7 +14,7 @@
 
 if (!defined('ABSPATH')) exit; // 直接アクセス禁止
 
-define('FS_VER', '1.4.1');
+define('FS_VER', '1.4.2');
 define('FS_OPT', 'fudosan_satei_options');
 define('FS_ENDPOINT', 'https://www.reinfolib.mlit.go.jp/ex-api/external/XIT001');
 
@@ -198,13 +198,12 @@ function fs_settings_page() {
                     : 'テストメールの送信に失敗しました。WP Mail SMTP などの送信設定を確認してください。') .
                 '</p></div>';
         } ?>
-        <p>ページに <code>[fudosan_satei]</code> を貼ると査定フォームが表示されます。<br>
-        メインビジュアル横などに置く短縮版：<code>[fudosan_satei design="compact"]</code> ／
-        ステップ入口：<code>[fudosan_satei design="teaser" url="/satei/"]</code></p>
+        <p>ページに <code>[fudosan_satei]</code> を貼ると査定フォームが表示されます。詳しい書き方は「<strong>使い方</strong>」タブへ。</p>
         <h2 class="nav-tab-wrapper" id="fs-tabs">
             <a href="#" class="nav-tab nav-tab-active" data-tab="basic">基本設定</a>
             <a href="#" class="nav-tab" data-tab="display">表示項目・対象エリア</a>
             <a href="#" class="nav-tab" data-tab="mail">自動返信メール</a>
+            <a href="#" class="nav-tab" data-tab="usage">使い方</a>
         </h2>
         <form method="post" action="options.php">
             <?php settings_fields('fs_group'); ?>
@@ -272,13 +271,68 @@ function fs_settings_page() {
             </table>
             </div>
 
-            <?php submit_button(); ?>
+            <div class="fs-tabpanel" data-tab="usage" style="display:none">
+            <h3>ショートコードの貼り方</h3>
+            <p>固定ページや投稿、ウィジェット（カスタムHTML）に貼ります。</p>
+            <table class="widefat striped" style="max-width:900px">
+                <thead><tr><th style="width:170px">用途</th><th>ショートコード</th></tr></thead>
+                <tbody>
+                <tr><td><strong>標準</strong><br><span class="description">査定ページ本体</span></td>
+                    <td><code>[fudosan_satei]</code><br><span class="description">全項目・幅100%・枠なし。ここで査定を実行し結果を表示＆メール送信。</span></td></tr>
+                <tr><td><strong>コンパクト</strong><br><span class="description">サイドバー等</span></td>
+                    <td><code>[fudosan_satei design="compact"]</code><br><span class="description">必須＋築年のみ。幅440pxのカード。ここでも査定は完結します。</span></td></tr>
+                <tr><td><strong>カード</strong></td>
+                    <td><code>[fudosan_satei design="card"]</code><br><span class="description">全項目を枠＋影のカードで表示。</span></td></tr>
+                <tr><td><strong>ステップ入口</strong><br><span class="description">トップのメインビジュアル横</span></td>
+                    <td><code>[fudosan_satei design="teaser" url="/satei/"]</code><br><span class="description"><strong>3項目だけ</strong>入力してもらい、ボタンで <code>url</code> のページへ。入力値は自動で引き継がれます。</span></td></tr>
+                </tbody>
+            </table>
+
+            <h3>ステップ構成にする場合（推奨）</h3>
+            <ol>
+                <li>トップページのヒーロー横に<br>
+                    <code>[fudosan_satei design="teaser" url="/satei/" logo="ロゴ画像URL" title="60秒でかんたん入力！" subtitle="査定結果はメールでお届け" button="無料査定スタート"]</code></li>
+                <li>査定ページ（例：<code>/satei/</code>）に <code>[fudosan_satei]</code></li>
+            </ol>
+            <p class="description">トップで選んだ「物件種別・都道府県・市区町村」が査定ページに引き継がれ、選択済みの状態で開きます。</p>
+
+            <h3>属性一覧</h3>
+            <table class="widefat striped" style="max-width:900px">
+                <thead><tr><th style="width:120px">属性</th><th style="width:150px">対象</th><th>説明</th></tr></thead>
+                <tbody>
+                <tr><td><code>design</code></td><td>すべて</td><td><code>default</code>（省略時） / <code>compact</code> / <code>card</code> / <code>teaser</code></td></tr>
+                <tr><td><code>url</code></td><td>teaser</td><td><strong>必須。</strong>ボタンの遷移先（査定ページのURL）</td></tr>
+                <tr><td><code>button</code></td><td>すべて</td><td>ボタンの文言（省略時：teaserは「査定をする」／他は「無料で査定結果を受け取る」）</td></tr>
+                <tr><td><code>title</code></td><td>teaser</td><td>見出し（省略時：60秒でかんたん入力！）</td></tr>
+                <tr><td><code>subtitle</code></td><td>teaser</td><td>小見出し</td></tr>
+                <tr><td><code>logo</code></td><td>teaser</td><td>ロゴ画像URL（メディアにアップしてURLを貼る）。指定するとロゴ左・見出し右の横並びに</td></tr>
+                </tbody>
+            </table>
+
+            <h3>そのほか</h3>
+            <ul style="list-style:disc;margin-left:20px">
+                <li><strong>入力項目の増減・対象エリアの限定</strong> …「表示項目・対象エリア」タブ</li>
+                <li><strong>自動返信メールの文面</strong> …「自動返信メール」タブ（差し込みタグ対応・テスト送信ボタンあり）</li>
+                <li><strong>集まった顧客情報</strong> … 左メニュー「匿名不動産AI査定 → 査定結果・顧客情報」（CSV書き出し／削除）</li>
+                <li>市区町村を選ぶと<strong>その地域の取引事例数</strong>が表示され、少ない種別は査定前に警告します</li>
+                <li>「地区（町名）」を選ぶと<strong>査定精度が上がります</strong>（同じ市区町村でも地区で相場が違うため）</li>
+            </ul>
+
+            <h3 style="color:#b32d2e">法的な注意</h3>
+            <p class="description">
+                本プラグインが出すのは宅建業の<strong>「価格査定（参考価格）」</strong>であり、不動産鑑定士による<strong>「鑑定評価」ではありません</strong>。
+                画面・メール・免責文でその旨を明示しています。<strong>免責文は削除しないでください。</strong>公開前に弁護士等の確認を推奨します。
+            </p>
+            </div>
+
+            <div id="fs-save"><?php submit_button(); ?></div>
         </form>
     </div>
     <script>
     (function(){
         var tabs = document.querySelectorAll('#fs-tabs .nav-tab');
         var panels = document.querySelectorAll('.fs-tabpanel');
+        var save = document.getElementById('fs-save');
         tabs.forEach(function(t){
             t.addEventListener('click', function(e){
                 e.preventDefault();
@@ -286,6 +340,7 @@ function fs_settings_page() {
                 t.classList.add('nav-tab-active');
                 var name = t.getAttribute('data-tab');
                 panels.forEach(function(p){ p.style.display = (p.getAttribute('data-tab') === name) ? '' : 'none'; });
+                if (save) save.style.display = (name === 'usage') ? 'none' : ''; // 使い方タブでは保存ボタンを隠す
             });
         });
     })();

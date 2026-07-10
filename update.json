@@ -1,6 +1,6 @@
 {
   "name": "かんたん不動産AI査定",
-  "version": "1.4.1",
+  "version": "1.4.2",
   "download_url": "https://raw.githubusercontent.com/yoshimucom-gif/fudosan-satei-plugin/main/fudosan-satei.zip",
   "requires": "5.8",
   "tested": "6.7",
@@ -8,6 +8,6 @@
   "author": "ミカタ株式会社",
   "homepage": "https://github.com/yoshimucom-gif/fudosan-satei-plugin",
   "sections": {
-    "changelog": "1.4.1\n・teaserにlogo属性を追加(ロゴ左・見出し右の横並び。未指定なら中央寄せのまま。狭い画面では縦積み)"
+    "changelog": "1.4.2\n・設定画面に「使い方」タブを追加(ショートコード全パターン・属性一覧・ステップ構成の手順) ・同梱readmeを最新化"
   }
 }
