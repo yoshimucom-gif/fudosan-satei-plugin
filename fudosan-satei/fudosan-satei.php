@@ -2,7 +2,7 @@
 /**
  * Plugin Name: かんたん不動産AI査定
  * Description: 匿名の不動産価格査定フォーム。国交省「不動産情報ライブラリ」の実成約事例から参考価格レンジを算出し、結果をメール送信＋リード保存。ショートコード [fudosan_satei] をページに貼るだけ。
- * Version: 1.3.1
+ * Version: 1.4.0
  * Author: (運営者)
  * License: GPLv2 or later
  * Text Domain: fudosan-satei
@@ -14,7 +14,7 @@
 
 if (!defined('ABSPATH')) exit; // 直接アクセス禁止
 
-define('FS_VER', '1.3.1');
+define('FS_VER', '1.4.0');
 define('FS_OPT', 'fudosan_satei_options');
 define('FS_ENDPOINT', 'https://www.reinfolib.mlit.go.jp/ex-api/external/XIT001');
 
@@ -759,13 +759,17 @@ add_shortcode('fudosan_satei', 'fs_shortcode');
  *   [fudosan_satei design="card"]    全項目をカード（枠＋影）で表示
  */
 function fs_shortcode($atts = array()) {
-    $a = shortcode_atts(array('design' => 'default', 'url' => '', 'button' => ''), $atts, 'fudosan_satei');
+    $a = shortcode_atts(array(
+        'design' => 'default', 'url' => '', 'button' => '', 'title' => '', 'subtitle' => '',
+    ), $atts, 'fudosan_satei');
     $design = in_array($a['design'], array('default', 'compact', 'card', 'teaser'), true) ? $a['design'] : 'default';
     $compact = ($design === 'compact');
     $teaser  = ($design === 'teaser');   // ステップ1: 3項目だけ入力して本フォームへ引き継ぐ
     $target  = esc_url($a['url']);
     $btn     = $a['button'] !== '' ? sanitize_text_field($a['button'])
                                    : ($teaser ? '査定をする' : '無料で査定結果を受け取る');
+    $t_title = $a['title'] !== ''    ? sanitize_text_field($a['title'])    : '60秒でかんたん入力！';
+    $t_sub   = $a['subtitle'] !== '' ? sanitize_text_field($a['subtitle']) : '査定結果はメールでお届けします';
 
     // compact/teaser は入力を最小限に（compactでは築年は精度のため残す）
     $show_district   = fs_show('district')   && !$compact && !$teaser;
@@ -791,10 +795,11 @@ function fs_shortcode($atts = array()) {
     $privacy = fs_opt('privacy_url');
     $terms   = fs_opt('terms_url');
 
-    $pref_options = '<option value="">選択</option>';
+    // teaser は選択肢の先頭を項目名（プレースホルダ）にする
+    $pref_options = '<option value="">' . ($teaser ? '都道府県' : '選択') . '</option>';
     foreach ($prefs as $code => $name) $pref_options .= '<option value="' . esc_attr($code) . '">' . esc_html($name) . '</option>';
 
-    $ptype_options = '<option value="">選択してください</option>'
+    $ptype_options = '<option value="">' . ($teaser ? '物件種別' : '選択してください') . '</option>'
         . '<option value="mansion">中古マンション</option>'
         . '<option value="house">中古一戸建て（土地＋建物）</option>'
         . '<option value="land">土地</option>';
@@ -848,12 +853,59 @@ function fs_shortcode($atts = array()) {
     .fs-design-compact .fs-spec th,.fs-design-compact .fs-spec td{padding:9px 8px}
     .fs-design-teaser .fs-note{color:var(--fs-muted);font-size:12px;margin-top:10px;line-height:1.6}
 
+    /* teaser: ヘッダー */
+    .fs-design-teaser .fs-card{padding:22px 20px}
+    .fs-teaser-head{text-align:center;padding-bottom:14px;margin-bottom:6px;border-bottom:1px solid var(--fs-line)}
+    .fs-teaser-title{font-size:19px;font-weight:800;color:var(--fs-brand);line-height:1.4}
+    .fs-teaser-sub{font-size:13px;color:var(--fs-muted);margin-top:4px}
+
+    /* teaser: ラベル横並び＋必須バッジ */
+    .fs-design-teaser .fs-trow{display:flex;align-items:center;gap:10px;margin:14px 0}
+    .fs-design-teaser .fs-tlabel{flex:0 0 auto;width:112px;display:flex;align-items:center;gap:6px;font-weight:700;font-size:15px}
+    .fs-design-teaser .fs-tfield{flex:1;min-width:0}
+    .fs-design-teaser .fs-tfield select{margin:0}
+    .fs-badge{background:#ff5a36;color:#fff;font-size:11px;font-weight:700;border-radius:4px;padding:3px 6px;line-height:1;flex:0 0 auto}
+    .fs-badge.fs-done{background:var(--fs-brand);border-radius:50%;width:21px;height:21px;padding:0;font-size:12px;display:inline-flex;align-items:center;justify-content:center}
+
+    /* teaser: 次に入力すべき欄をハイライト（ちかちか） */
+    .fs-design-teaser select.fs-next{border-color:#7fb2ff;animation:fsPulse 1.5s ease-in-out infinite}
+    @keyframes fsPulse{
+      0%,100%{box-shadow:0 0 0 3px rgba(31,111,235,.16)}
+      50%{box-shadow:0 0 0 7px rgba(31,111,235,.28)}
+    }
+    @media (prefers-reduced-motion:reduce){
+      .fs-design-teaser select.fs-next{animation:none;box-shadow:0 0 0 3px rgba(31,111,235,.20)}
+    }
+
     /* デザイン: card（全項目を枠＋影のカードで） */
     .fs-design-card .fs-card{background:#fff;border:1px solid var(--fs-line);border-radius:14px;padding:24px 22px;box-shadow:0 4px 18px rgba(16,24,40,.06)}
   </style>
 
   <div class="fs-card fs-form-card" id="fs-form-card">
     <div class="fs-errors" id="fs-errors"></div>
+<?php if ($teaser): ?>
+    <div class="fs-teaser-head">
+      <div class="fs-teaser-title"><?php echo esc_html($t_title); ?></div>
+<?php if ($t_sub !== ''): ?>
+      <div class="fs-teaser-sub"><?php echo esc_html($t_sub); ?></div>
+<?php endif; ?>
+    </div>
+    <form class="fs-form" id="fs-form">
+      <div class="fs-trow">
+        <div class="fs-tlabel">物件種別<span class="fs-badge">必須</span></div>
+        <div class="fs-tfield"><select name="ptype" required><?php echo $ptype_options; ?></select></div>
+      </div>
+      <div class="fs-trow">
+        <div class="fs-tlabel">都道府県<span class="fs-badge">必須</span></div>
+        <div class="fs-tfield"><select class="fs-pref" name="pref_code" id="fs-pref" required><?php echo $pref_options; ?></select></div>
+      </div>
+      <div class="fs-trow">
+        <div class="fs-tlabel">市区町村<span class="fs-badge">必須</span></div>
+        <div class="fs-tfield"><select class="fs-city" name="city_code" id="fs-city" required><option value="">市区町村</option></select></div>
+      </div>
+
+      <div class="fs-coverage"></div>
+<?php else: ?>
     <form class="fs-form" id="fs-form">
       <label>物件種別<span class="fs-req">必須</span></label>
       <select name="ptype" required><?php echo $ptype_options; ?></select>
@@ -870,6 +922,7 @@ function fs_shortcode($atts = array()) {
       </div>
 
       <div class="fs-coverage"></div>
+<?php endif; ?>
 
 <?php if ($show_district): ?>
       <label>地区（町名）<span class="fs-hint" style="font-weight:400">任意・選ぶと査定精度が上がります</span></label>
@@ -987,16 +1040,37 @@ function fs_shortcode($atts = array()) {
     cov.innerHTML = html;
   }
 
+  // teaser: 入力済みは「必須」→青いチェックに、次に入力すべき欄を光らせる
+  function updateTeaserState(){
+    if (!TEASER) return;
+    var fields = [ptypeSel, pref, city];
+    var firstEmpty = -1;
+    fields.forEach(function(el, i){
+      if (!el) return;
+      el.classList.remove('fs-next');
+      var row = el.closest ? el.closest('.fs-trow') : null;
+      var badge = row ? row.querySelector('.fs-badge') : null;
+      var filled = !!el.value;
+      if (badge) {
+        if (filled) { badge.classList.add('fs-done'); badge.textContent = '✓'; }
+        else { badge.classList.remove('fs-done'); badge.textContent = '必須'; }
+      }
+      if (!filled && firstEmpty < 0) firstEmpty = i;
+    });
+    if (firstEmpty >= 0 && fields[firstEmpty]) fields[firstEmpty].classList.add('fs-next');
+  }
+
   pref.addEventListener('change', function(){
     var list = CITIES[pref.value] || [];
-    city.innerHTML = '<option value="">選択してください</option>' +
+    city.innerHTML = '<option value="">' + (TEASER ? '市区町村' : '選択してください') + '</option>' +
       list.map(function(c){ return '<option value="'+c[0]+'">'+c[1]+'</option>'; }).join('');
     if (district) district.innerHTML = '<option value="">市区町村を選ぶと表示されます</option>';
-    TYPE_COUNTS = null; renderCoverage();
+    TYPE_COUNTS = null; renderCoverage(); updateTeaserState();
   });
 
   city.addEventListener('change', function(){
     TYPE_COUNTS = null;
+    updateTeaserState();
     if (!city.value) {
       if (district) district.innerHTML = '<option value="">市区町村を選ぶと表示されます</option>';
       renderCoverage();
@@ -1020,7 +1094,9 @@ function fs_shortcode($atts = array()) {
       });
   });
 
-  if (ptypeSel) ptypeSel.addEventListener('change', renderCoverage);
+  if (ptypeSel) ptypeSel.addEventListener('change', function(){ renderCoverage(); updateTeaserState(); });
+
+  updateTeaserState(); // 初期表示（最初の未入力欄を光らせる）
 
   // ステップ1（teaser）から引き継いだ値を復元し、市区町村・事例数まで自動で読み込む
   if (!TEASER && PREFILL && (PREFILL.ptype || PREFILL.pref)) {
