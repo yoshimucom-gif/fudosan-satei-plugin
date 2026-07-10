@@ -2,7 +2,7 @@
 /**
  * Plugin Name: かんたん不動産AI査定
  * Description: 匿名の不動産価格査定フォーム。国交省「不動産情報ライブラリ」の実成約事例から参考価格レンジを算出し、結果をメール送信＋リード保存。ショートコード [fudosan_satei] をページに貼るだけ。
- * Version: 1.1.2
+ * Version: 1.2.0
  * Author: (運営者)
  * License: GPLv2 or later
  * Text Domain: fudosan-satei
@@ -14,7 +14,7 @@
 
 if (!defined('ABSPATH')) exit; // 直接アクセス禁止
 
-define('FS_VER', '1.1.2');
+define('FS_VER', '1.2.0');
 define('FS_OPT', 'fudosan_satei_options');
 define('FS_ENDPOINT', 'https://www.reinfolib.mlit.go.jp/ex-api/external/XIT001');
 
@@ -713,7 +713,24 @@ function fs_ajax() {
  * 8. ショートコード [fudosan_satei]
  * ======================================================================= */
 add_shortcode('fudosan_satei', 'fs_shortcode');
-function fs_shortcode() {
+/**
+ * デザインパターン:
+ *   [fudosan_satei]                  標準（全項目・幅100%・枠なし）
+ *   [fudosan_satei design="compact"] コンパクト（必須＋築年のみ・カード・幅440px。メインビジュアル横向け）
+ *   [fudosan_satei design="card"]    全項目をカード（枠＋影）で表示
+ */
+function fs_shortcode($atts = array()) {
+    $a = shortcode_atts(array('design' => 'default'), $atts, 'fudosan_satei');
+    $design = in_array($a['design'], array('default', 'compact', 'card'), true) ? $a['design'] : 'default';
+    $compact = ($design === 'compact');
+
+    // コンパクトは入力を最小限に（築年は精度のため残す）
+    $show_district   = fs_show('district')   && !$compact;
+    $show_station    = fs_show('station')    && !$compact;
+    $show_floor_plan = fs_show('floor_plan') && !$compact;
+    $show_build_year = fs_show('build_year');
+    $show_marketing  = fs_show('marketing')  && !$compact;
+
     $prefs  = fs_area_prefs();
     $cities = fs_cities();
     $nonce  = wp_create_nonce('fudosan_satei');
@@ -741,7 +758,7 @@ function fs_shortcode() {
     $uid = 'fs-' . uniqid();
 
     ob_start(); ?>
-<div class="fs-wrap" id="<?php echo esc_attr($uid); ?>">
+<div class="fs-wrap fs-design-<?php echo esc_attr($design); ?>" id="<?php echo esc_attr($uid); ?>">
   <style>
     .fs-wrap{--fs-brand:#1f6feb;--fs-ink:#1a1f36;--fs-muted:#6b7280;--fs-line:#e5e7eb;width:100%;max-width:none;margin:0;color:var(--fs-ink);font-family:inherit;line-height:1.75;font-size:17px}
     .fs-card{background:transparent;border:0;border-radius:0;padding:0}
@@ -762,6 +779,24 @@ function fs_shortcode() {
     .fs-spec th,.fs-spec td{border-bottom:1px solid var(--fs-line);padding:12px 10px;text-align:left}
     .fs-spec th{color:var(--fs-muted);font-weight:600;width:38%}
     .fs-ok{color:#0a7d33;font-weight:600;font-size:16px}
+    .fs-coverage{color:var(--fs-muted);font-size:14px;line-height:1.6;margin-top:8px}
+
+    /* デザイン: compact（メインビジュアル横などに収める短い版） */
+    .fs-design-compact{max-width:440px}
+    .fs-design-compact .fs-card{background:#fff;border:1px solid var(--fs-line);border-radius:14px;padding:20px 18px;box-shadow:0 8px 28px rgba(16,24,40,.10)}
+    .fs-design-compact label{font-size:16px;margin:12px 0 5px}
+    .fs-design-compact input,.fs-design-compact select{padding:11px 12px;font-size:16px}
+    .fs-design-compact button{margin-top:16px;padding:14px;font-size:17px}
+    .fs-design-compact .fs-form .fs-hint{display:none}
+    .fs-design-compact .fs-coverage{font-size:13px;margin-top:6px}
+    .fs-design-compact .fs-check label{font-size:14px}
+    .fs-design-compact .fs-disc{font-size:12px;padding:10px 12px;margin-top:12px}
+    .fs-design-compact .fs-price{font-size:28px}
+    .fs-design-compact .fs-spec{font-size:15px}
+    .fs-design-compact .fs-spec th,.fs-design-compact .fs-spec td{padding:9px 8px}
+
+    /* デザイン: card（全項目を枠＋影のカードで） */
+    .fs-design-card .fs-card{background:#fff;border:1px solid var(--fs-line);border-radius:14px;padding:24px 22px;box-shadow:0 4px 18px rgba(16,24,40,.06)}
   </style>
 
   <div class="fs-card fs-form-card" id="fs-form-card">
@@ -781,9 +816,9 @@ function fs_shortcode() {
         </div>
       </div>
 
-      <div class="fs-coverage fs-hint" style="margin-top:8px"></div>
+      <div class="fs-coverage"></div>
 
-<?php if (fs_show('district')): ?>
+<?php if ($show_district): ?>
       <label>地区（町名）<span class="fs-hint" style="font-weight:400">任意・選ぶと査定精度が上がります</span></label>
       <select class="fs-district" name="district"><option value="">市区町村を選ぶと表示されます</option></select>
 <?php endif; ?>
@@ -794,7 +829,7 @@ function fs_shortcode() {
           <input type="number" name="area" step="0.01" min="1" placeholder="例：70" required>
           <div class="fs-hint">マンション・戸建は専有/延床、土地は敷地面積</div>
         </div>
-<?php if (fs_show('build_year')): ?>
+<?php if ($show_build_year): ?>
         <div>
           <label>築年（西暦）</label>
           <input type="number" name="build_year" min="1950" max="<?php echo $year; ?>" placeholder="例：2015">
@@ -803,7 +838,7 @@ function fs_shortcode() {
 <?php endif; ?>
       </div>
 
-<?php if (fs_show('station')): ?>
+<?php if ($show_station): ?>
       <div class="fs-row">
         <div>
           <label>最寄駅<span class="fs-hint" style="font-weight:400">任意</span></label>
@@ -816,7 +851,7 @@ function fs_shortcode() {
       </div>
 <?php endif; ?>
 
-<?php if (fs_show('floor_plan')): ?>
+<?php if ($show_floor_plan): ?>
       <label>間取り<span class="fs-hint" style="font-weight:400">任意</span></label>
       <select name="floor_plan">
         <option value="">選択しない</option>
@@ -834,7 +869,7 @@ function fs_shortcode() {
         <input type="checkbox" name="agree" id="fs-agree" value="1" required>
         <label for="fs-agree"><?php echo $agree_label; ?></label>
       </div>
-<?php if (fs_show('marketing')): ?>
+<?php if ($show_marketing): ?>
       <div class="fs-check">
         <input type="checkbox" name="marketing" id="fs-mkt" value="1">
         <label for="fs-mkt">売却に関するご提案・お役立ち情報のメール受け取りを希望します（任意）</label>
