@@ -2,7 +2,7 @@
 /**
  * Plugin Name: かんたん不動産AI査定
  * Description: 匿名の不動産価格査定フォーム。国交省「不動産情報ライブラリ」の実成約事例から参考価格レンジを算出し、結果をメール送信＋リード保存。ショートコード [fudosan_satei] をページに貼るだけ。
- * Version: 1.1.0
+ * Version: 1.1.1
  * Author: (運営者)
  * License: GPLv2 or later
  * Text Domain: fudosan-satei
@@ -14,7 +14,7 @@
 
 if (!defined('ABSPATH')) exit; // 直接アクセス禁止
 
-define('FS_VER', '1.1.0');
+define('FS_VER', '1.1.1');
 define('FS_OPT', 'fudosan_satei_options');
 define('FS_ENDPOINT', 'https://www.reinfolib.mlit.go.jp/ex-api/external/XIT001');
 
@@ -41,19 +41,50 @@ function fs_activate() {
     global $wpdb;
     $table = $wpdb->prefix . 'fudosan_satei_leads';
     $charset = $wpdb->get_charset_collate();
+    // dbDeltaは「1カラム1行」でないと既存テーブルへのカラム追加を取りこぼす
     $sql = "CREATE TABLE $table (
         id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
         created_at DATETIME NOT NULL,
         email VARCHAR(191) NOT NULL,
-        pref VARCHAR(50), city VARCHAR(50), ptype VARCHAR(20),
-        area FLOAT, build_year INT, station_min INT,
-        station_name VARCHAR(100), floor_plan VARCHAR(30), district VARCHAR(100),
-        low BIGINT, mid BIGINT, high BIGINT,
-        sample_size INT, marketing_opt_in TINYINT(1) DEFAULT 0,
-        PRIMARY KEY (id)
+        pref VARCHAR(50) NULL,
+        city VARCHAR(50) NULL,
+        ptype VARCHAR(20) NULL,
+        area FLOAT NULL,
+        build_year INT NULL,
+        station_min INT NULL,
+        station_name VARCHAR(100) NULL,
+        floor_plan VARCHAR(30) NULL,
+        district VARCHAR(100) NULL,
+        low BIGINT NULL,
+        mid BIGINT NULL,
+        high BIGINT NULL,
+        sample_size INT NULL,
+        marketing_opt_in TINYINT(1) DEFAULT 0,
+        PRIMARY KEY  (id)
     ) $charset;";
     require_once ABSPATH . 'wp-admin/includes/upgrade.php';
     dbDelta($sql);
+    fs_ensure_columns();
+}
+
+/* dbDeltaの取りこぼし対策: 不足カラムを明示的にALTERで追加（確実） */
+function fs_ensure_columns() {
+    global $wpdb;
+    $t = $wpdb->prefix . 'fudosan_satei_leads';
+    if ($wpdb->get_var($wpdb->prepare("SHOW TABLES LIKE %s", $t)) !== $t) return;
+    $cols = $wpdb->get_col("SHOW COLUMNS FROM `$t`", 0);
+    if (!is_array($cols)) return;
+    $need = array(
+        'station_name' => 'VARCHAR(100) NULL',
+        'floor_plan'   => 'VARCHAR(30) NULL',
+        'district'     => 'VARCHAR(100) NULL',
+        'station_min'  => 'INT NULL',
+    );
+    foreach ($need as $c => $def) {
+        if (!in_array($c, $cols, true)) {
+            $wpdb->query("ALTER TABLE `$t` ADD COLUMN `$c` $def");
+        }
+    }
 }
 
 /* 自動更新でバージョンが上がったらテーブル定義を追従（新カラム追加等） */
@@ -251,6 +282,8 @@ function fs_leads_page() {
     $export = wp_nonce_url(admin_url('admin-post.php?action=fs_export_leads'), 'fs_export_leads');
     echo '<div class="wrap"><h1>査定結果・顧客情報</h1>';
     if (isset($_GET['deleted'])) echo '<div class="notice notice-success is-dismissible"><p>削除しました。</p></div>';
+    $dberr = get_option('fs_last_db_error');
+    if ($dberr) echo '<div class="notice notice-error"><p><strong>直近に保存エラーが発生しました：</strong> ' . esc_html($dberr) . '<br>最新版に更新すると自動修復を試みます。次の査定で解消されない場合は、この赤いメッセージの文面を共有してください。</p></div>';
     echo '<p>登録数：' . $total . ' 件（表示は最新200件）　<a class="button button-primary" href="' . esc_url($export) . '">CSVエクスポート（Excel）</a></p>';
     echo '<table class="widefat striped"><thead><tr>';
     echo '<th>日時</th><th>メール</th><th>所在地</th><th>種別</th><th>面積</th><th>間取り</th><th>築年</th><th>最寄駅</th><th>レンジ(万円)</th><th>事例数</th><th>営業可</th><th>操作</th></tr></thead><tbody>';
@@ -604,7 +637,7 @@ function fs_ajax() {
 
     // リード保存（事例不足でも保存＝営業価値）
     global $wpdb;
-    $wpdb->insert($wpdb->prefix . 'fudosan_satei_leads', array(
+    $ins = $wpdb->insert($wpdb->prefix . 'fudosan_satei_leads', array(
         'created_at' => current_time('mysql'), 'email' => $email,
         'pref' => $pref_name, 'city' => $city_name, 'ptype' => $ptype,
         'area' => $area, 'build_year' => $byear, 'station_min' => $smin,
@@ -612,6 +645,21 @@ function fs_ajax() {
         'low' => $res['low'] ?? null, 'mid' => $res['mid'] ?? null, 'high' => $res['high'] ?? null,
         'sample_size' => $res['sample_size'] ?? 0, 'marketing_opt_in' => $mkt ? 1 : 0,
     ));
+    if ($ins === false) {
+        // 保存失敗を記録し、カラム不足なら自己修復して1回だけ再試行
+        update_option('fs_last_db_error', $wpdb->last_error . ' @ ' . current_time('mysql'));
+        fs_ensure_columns();
+        $wpdb->insert($wpdb->prefix . 'fudosan_satei_leads', array(
+            'created_at' => current_time('mysql'), 'email' => $email,
+            'pref' => $pref_name, 'city' => $city_name, 'ptype' => $ptype,
+            'area' => $area, 'build_year' => $byear, 'station_min' => $smin,
+            'station_name' => $sname, 'floor_plan' => $fplan, 'district' => $district,
+            'low' => $res['low'] ?? null, 'mid' => $res['mid'] ?? null, 'high' => $res['high'] ?? null,
+            'sample_size' => $res['sample_size'] ?? 0, 'marketing_opt_in' => $mkt ? 1 : 0,
+        ));
+    } else {
+        delete_option('fs_last_db_error');
+    }
 
     $label = $GLOBALS['FS_PTYPE_LABEL'][$ptype];
 
