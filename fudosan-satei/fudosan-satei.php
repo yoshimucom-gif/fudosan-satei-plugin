@@ -2,7 +2,7 @@
 /**
  * Plugin Name: かんたん不動産AI査定
  * Description: 匿名の不動産価格査定フォーム。国交省「不動産情報ライブラリ」の実成約事例から参考価格レンジを算出し、結果をメール送信＋リード保存。ショートコード [fudosan_satei] をページに貼るだけ。
- * Version: 1.4.0
+ * Version: 1.4.1
  * Author: (運営者)
  * License: GPLv2 or later
  * Text Domain: fudosan-satei
@@ -14,7 +14,7 @@
 
 if (!defined('ABSPATH')) exit; // 直接アクセス禁止
 
-define('FS_VER', '1.4.0');
+define('FS_VER', '1.4.1');
 define('FS_OPT', 'fudosan_satei_options');
 define('FS_ENDPOINT', 'https://www.reinfolib.mlit.go.jp/ex-api/external/XIT001');
 
@@ -760,7 +760,7 @@ add_shortcode('fudosan_satei', 'fs_shortcode');
  */
 function fs_shortcode($atts = array()) {
     $a = shortcode_atts(array(
-        'design' => 'default', 'url' => '', 'button' => '', 'title' => '', 'subtitle' => '',
+        'design' => 'default', 'url' => '', 'button' => '', 'title' => '', 'subtitle' => '', 'logo' => '',
     ), $atts, 'fudosan_satei');
     $design = in_array($a['design'], array('default', 'compact', 'card', 'teaser'), true) ? $a['design'] : 'default';
     $compact = ($design === 'compact');
@@ -770,6 +770,7 @@ function fs_shortcode($atts = array()) {
                                    : ($teaser ? '査定をする' : '無料で査定結果を受け取る');
     $t_title = $a['title'] !== ''    ? sanitize_text_field($a['title'])    : '60秒でかんたん入力！';
     $t_sub   = $a['subtitle'] !== '' ? sanitize_text_field($a['subtitle']) : '査定結果はメールでお届けします';
+    $t_logo  = $a['logo'] !== ''     ? esc_url($a['logo'])                 : '';
 
     // compact/teaser は入力を最小限に（compactでは築年は精度のため残す）
     $show_district   = fs_show('district')   && !$compact && !$teaser;
@@ -858,6 +859,14 @@ function fs_shortcode($atts = array()) {
     .fs-teaser-head{text-align:center;padding-bottom:14px;margin-bottom:6px;border-bottom:1px solid var(--fs-line)}
     .fs-teaser-title{font-size:19px;font-weight:800;color:var(--fs-brand);line-height:1.4}
     .fs-teaser-sub{font-size:13px;color:var(--fs-muted);margin-top:4px}
+    /* ロゴあり: ロゴ左・テキスト右の横並び */
+    .fs-teaser-head.fs-has-logo{display:flex;align-items:center;gap:12px;text-align:left}
+    .fs-teaser-head.fs-has-logo .fs-teaser-logo{flex:0 0 auto;line-height:0}
+    .fs-teaser-head.fs-has-logo .fs-teaser-logo img{display:block;max-height:56px;max-width:80px;width:auto;height:auto}
+    .fs-teaser-head.fs-has-logo .fs-teaser-texts{flex:1;min-width:0}
+    @media (max-width:380px){
+      .fs-teaser-head.fs-has-logo{flex-direction:column;text-align:center;gap:8px}
+    }
 
     /* teaser: ラベル横並び＋必須バッジ */
     .fs-design-teaser .fs-trow{display:flex;align-items:center;gap:10px;margin:14px 0}
@@ -884,11 +893,16 @@ function fs_shortcode($atts = array()) {
   <div class="fs-card fs-form-card" id="fs-form-card">
     <div class="fs-errors" id="fs-errors"></div>
 <?php if ($teaser): ?>
-    <div class="fs-teaser-head">
-      <div class="fs-teaser-title"><?php echo esc_html($t_title); ?></div>
-<?php if ($t_sub !== ''): ?>
-      <div class="fs-teaser-sub"><?php echo esc_html($t_sub); ?></div>
+    <div class="fs-teaser-head<?php echo $t_logo ? ' fs-has-logo' : ''; ?>">
+<?php if ($t_logo): ?>
+      <div class="fs-teaser-logo"><img src="<?php echo esc_url($t_logo); ?>" alt="<?php echo esc_attr(fs_opt('site_name', '')); ?>"></div>
 <?php endif; ?>
+      <div class="fs-teaser-texts">
+        <div class="fs-teaser-title"><?php echo esc_html($t_title); ?></div>
+<?php if ($t_sub !== ''): ?>
+        <div class="fs-teaser-sub"><?php echo esc_html($t_sub); ?></div>
+<?php endif; ?>
+      </div>
     </div>
     <form class="fs-form" id="fs-form">
       <div class="fs-trow">
