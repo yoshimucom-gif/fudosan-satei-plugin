@@ -2,7 +2,7 @@
 /**
  * Plugin Name: かんたん不動産AI査定
  * Description: 匿名の不動産価格査定フォーム。国交省「不動産情報ライブラリ」の実成約事例から参考価格レンジを算出し、結果をメール送信＋リード保存。ショートコード [fudosan_satei] をページに貼るだけ。
- * Version: 1.1.1
+ * Version: 1.1.2
  * Author: (運営者)
  * License: GPLv2 or later
  * Text Domain: fudosan-satei
@@ -14,7 +14,7 @@
 
 if (!defined('ABSPATH')) exit; // 直接アクセス禁止
 
-define('FS_VER', '1.1.1');
+define('FS_VER', '1.1.2');
 define('FS_OPT', 'fudosan_satei_options');
 define('FS_ENDPOINT', 'https://www.reinfolib.mlit.go.jp/ex-api/external/XIT001');
 
@@ -528,8 +528,29 @@ add_action('wp_ajax_fudosan_satei_districts', 'fs_ajax_districts');
 add_action('wp_ajax_nopriv_fudosan_satei_districts', 'fs_ajax_districts');
 function fs_ajax_districts() {
     $city = sanitize_text_field($_GET['city'] ?? '');
-    if (!$city) wp_send_json(array());
-    wp_send_json(fs_districts($city));
+    if (!$city) wp_send_json(array('districts' => array(), 'counts' => null));
+
+    $recs = fs_fetch_recent($city, intval(date('Y')) - 1, 8);
+
+    // 地区名（取引件数の多い順）
+    $dc = array();
+    foreach ($recs as $r) {
+        $d = trim($r['DistrictName'] ?? '');
+        if ($d !== '') $dc[$d] = (isset($dc[$d]) ? $dc[$d] : 0) + 1;
+    }
+    arsort($dc);
+    $districts = array();
+    foreach ($dc as $name => $c) $districts[] = array($name, $c);
+
+    // 物件種別ごとの事例数（＝査定できるかの事前判定に使う）
+    $counts = array('mansion' => 0, 'house' => 0, 'land' => 0);
+    foreach ($recs as $r) {
+        $t = $r['Type'] ?? '';
+        foreach ($GLOBALS['FS_PTYPE_MAP'] as $key => $val) {
+            if ($t === $val) { $counts[$key]++; break; }
+        }
+    }
+    wp_send_json(array('districts' => $districts, 'counts' => $counts));
 }
 
 function fs_mock_records($city) {
@@ -760,6 +781,8 @@ function fs_shortcode() {
         </div>
       </div>
 
+      <div class="fs-coverage fs-hint" style="margin-top:8px"></div>
+
 <?php if (fs_show('district')): ?>
       <label>地区（町名）<span class="fs-hint" style="font-weight:400">任意・選ぶと査定精度が上がります</span></label>
       <select class="fs-district" name="district"><option value="">市区町村を選ぶと表示されます</option></select>
@@ -846,24 +869,59 @@ function fs_shortcode() {
   var formCard = wrap.querySelector('.fs-form-card'), resultCard = wrap.querySelector('.fs-result');
   var btn = wrap.querySelector('.fs-submit');
 
+  var ptypeSel = wrap.querySelector('select[name="ptype"]');
+  var cov = wrap.querySelector('.fs-coverage');
+  var TYPE_COUNTS = null;
+  var TYPE_LABELS = { mansion:'中古マンション', house:'一戸建て', land:'土地' };
+
+  // 選んだ市区町村の事例数を出し、少なければ査定前に警告する
+  function renderCoverage(){
+    if (!cov) return;
+    if (!TYPE_COUNTS) { cov.innerHTML = ''; return; }
+    var parts = [];
+    for (var k in TYPE_LABELS) parts.push(TYPE_LABELS[k] + ' ' + (TYPE_COUNTS[k] || 0) + '件');
+    var html = 'この地域の取引事例：' + parts.join(' ／ ');
+    var t = ptypeSel ? ptypeSel.value : '';
+    if (t && (TYPE_COUNTS[t] || 0) < 5) {
+      html += '<br><strong style="color:#c0392b">⚠ 選択中の種別は事例が少ないため、査定できない場合があります（その場合は個別査定をご案内します）。</strong>';
+    }
+    cov.innerHTML = html;
+  }
+
   pref.addEventListener('change', function(){
     var list = CITIES[pref.value] || [];
     city.innerHTML = '<option value="">選択してください</option>' +
       list.map(function(c){ return '<option value="'+c[0]+'">'+c[1]+'</option>'; }).join('');
     if (district) district.innerHTML = '<option value="">市区町村を選ぶと表示されます</option>';
+    TYPE_COUNTS = null; renderCoverage();
   });
 
-  if (district) city.addEventListener('change', function(){
-    if (!city.value) { district.innerHTML = '<option value="">市区町村を選ぶと表示されます</option>'; return; }
-    district.innerHTML = '<option value="">読み込み中…</option>';
+  city.addEventListener('change', function(){
+    TYPE_COUNTS = null;
+    if (!city.value) {
+      if (district) district.innerHTML = '<option value="">市区町村を選ぶと表示されます</option>';
+      renderCoverage();
+      return;
+    }
+    if (district) district.innerHTML = '<option value="">読み込み中…</option>';
+    if (cov) cov.textContent = 'この地域の取引事例を確認中…';
     fetch(AJAX + '?action=fudosan_satei_districts&city=' + encodeURIComponent(city.value), { credentials:'same-origin' })
       .then(function(r){ return r.json(); })
-      .then(function(list){
-        district.innerHTML = '<option value="">指定なし（市区町村全体）</option>' +
-          (list||[]).map(function(d){ return '<option value="'+esc(d[0])+'">'+esc(d[0])+'（'+d[1]+'件）</option>'; }).join('');
+      .then(function(d){
+        if (district) {
+          district.innerHTML = '<option value="">指定なし（市区町村全体）</option>' +
+            ((d && d.districts) || []).map(function(x){ return '<option value="'+esc(x[0])+'">'+esc(x[0])+'（'+x[1]+'件）</option>'; }).join('');
+        }
+        TYPE_COUNTS = (d && d.counts) || null;
+        renderCoverage();
       })
-      .catch(function(){ district.innerHTML = '<option value="">指定なし（市区町村全体）</option>'; });
+      .catch(function(){
+        if (district) district.innerHTML = '<option value="">指定なし（市区町村全体）</option>';
+        if (cov) cov.textContent = '';
+      });
   });
+
+  if (ptypeSel) ptypeSel.addEventListener('change', renderCoverage);
 
   function esc(s){ var d=document.createElement('div'); d.textContent=s==null?'':s; return d.innerHTML; }
 
