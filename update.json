@@ -1,6 +1,6 @@
 {
   "name": "かんたん不動産AI査定",
-  "version": "1.0.9",
+  "version": "1.1.0",
   "download_url": "https://raw.githubusercontent.com/yoshimucom-gif/fudosan-satei-plugin/main/fudosan-satei.zip",
   "requires": "5.8",
   "tested": "6.7",
@@ -8,6 +8,6 @@
   "author": "ミカタ株式会社",
   "homepage": "https://github.com/yoshimucom-gif/fudosan-satei-plugin",
   "sections": {
-    "changelog": "1.0.9\n・フォームの外枠(カード枠)を削除 ・幅をメインカラム100%に"
+    "changelog": "1.1.0\n・専用メニューを新設し、その下に「設定」と「査定結果・顧客情報」を配置(ツールメニューから移動)"
   }
 }

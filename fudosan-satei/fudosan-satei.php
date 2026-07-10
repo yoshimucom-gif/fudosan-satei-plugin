@@ -2,7 +2,7 @@
 /**
  * Plugin Name: かんたん不動産AI査定
  * Description: 匿名の不動産価格査定フォーム。国交省「不動産情報ライブラリ」の実成約事例から参考価格レンジを算出し、結果をメール送信＋リード保存。ショートコード [fudosan_satei] をページに貼るだけ。
- * Version: 1.0.9
+ * Version: 1.1.0
  * Author: (運営者)
  * License: GPLv2 or later
  * Text Domain: fudosan-satei
@@ -14,7 +14,7 @@
 
 if (!defined('ABSPATH')) exit; // 直接アクセス禁止
 
-define('FS_VER', '1.0.9');
+define('FS_VER', '1.1.0');
 define('FS_OPT', 'fudosan_satei_options');
 define('FS_ENDPOINT', 'https://www.reinfolib.mlit.go.jp/ex-api/external/XIT001');
 
@@ -74,8 +74,10 @@ function fs_opt($key, $default = '') {
 }
 
 add_action('admin_menu', function () {
-    add_options_page('匿名不動産AI査定', '匿名不動産AI査定', 'manage_options', 'fudosan-satei', 'fs_settings_page');
-    add_management_page('査定リード一覧', '査定リード一覧', 'manage_options', 'fudosan-satei-leads', 'fs_leads_page');
+    // 専用のトップレベルメニュー（設定 と 査定結果・顧客情報 をまとめる）
+    add_menu_page('匿名不動産AI査定', '匿名不動産AI査定', 'manage_options', 'fudosan-satei', 'fs_settings_page', 'dashicons-building', 58);
+    add_submenu_page('fudosan-satei', '設定', '設定', 'manage_options', 'fudosan-satei', 'fs_settings_page');
+    add_submenu_page('fudosan-satei', '査定結果・顧客情報', '査定結果・顧客情報', 'manage_options', 'fudosan-satei-leads', 'fs_leads_page');
 });
 
 add_action('admin_init', function () {
@@ -247,7 +249,7 @@ function fs_leads_page() {
     $rows = $wpdb->get_results("SELECT * FROM $table ORDER BY id DESC LIMIT 200");
     $total = (int)$wpdb->get_var("SELECT COUNT(*) FROM $table");
     $export = wp_nonce_url(admin_url('admin-post.php?action=fs_export_leads'), 'fs_export_leads');
-    echo '<div class="wrap"><h1>査定リード一覧</h1>';
+    echo '<div class="wrap"><h1>査定結果・顧客情報</h1>';
     if (isset($_GET['deleted'])) echo '<div class="notice notice-success is-dismissible"><p>削除しました。</p></div>';
     echo '<p>登録数：' . $total . ' 件（表示は最新200件）　<a class="button button-primary" href="' . esc_url($export) . '">CSVエクスポート（Excel）</a></p>';
     echo '<table class="widefat striped"><thead><tr>';
@@ -300,7 +302,7 @@ function fs_delete_lead() {
         global $wpdb;
         $wpdb->delete($wpdb->prefix . 'fudosan_satei_leads', array('id' => $id));
     }
-    wp_safe_redirect(admin_url('tools.php?page=fudosan-satei-leads&deleted=1'));
+    wp_safe_redirect(admin_url('admin.php?page=fudosan-satei-leads&deleted=1'));
     exit;
 }
 
