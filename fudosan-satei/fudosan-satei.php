@@ -2,7 +2,7 @@
 /**
  * Plugin Name: かんたん不動産AI査定
  * Description: 匿名の不動産価格査定フォーム。国交省「不動産情報ライブラリ」の実成約事例から参考価格レンジを算出し、結果をメール送信＋リード保存。ショートコード [fudosan_satei] をページに貼るだけ。
- * Version: 1.5.0
+ * Version: 1.5.1
  * Author: (運営者)
  * License: GPLv2 or later
  * Text Domain: fudosan-satei
@@ -14,7 +14,7 @@
 
 if (!defined('ABSPATH')) exit; // 直接アクセス禁止
 
-define('FS_VER', '1.5.0');
+define('FS_VER', '1.5.1');
 define('FS_OPT', 'fudosan_satei_options');
 define('FS_ENDPOINT', 'https://www.reinfolib.mlit.go.jp/ex-api/external/XIT001');
 
@@ -899,11 +899,11 @@ function fs_shortcode($atts = array()) {
     $privacy = fs_opt('privacy_url');
     $terms   = fs_opt('terms_url');
 
-    // teaser は選択肢の先頭を項目名（プレースホルダ）にする
-    $pref_options = '<option value="">' . ($teaser ? '都道府県' : '選択') . '</option>';
+    // プレースホルダーは「行動」を示す（ラベルと同じ語を繰り返さない）
+    $pref_options = '<option value="">選択してください</option>';
     foreach ($prefs as $code => $name) $pref_options .= '<option value="' . esc_attr($code) . '">' . esc_html($name) . '</option>';
 
-    $ptype_options = '<option value="">' . ($teaser ? '物件種別' : '選択してください') . '</option>'
+    $ptype_options = '<option value="">選択してください</option>'
         . '<option value="mansion">中古マンション</option>'
         . '<option value="house">中古一戸建て（土地＋建物）</option>'
         . '<option value="land">土地</option>';
@@ -1019,7 +1019,7 @@ function fs_shortcode($atts = array()) {
       </div>
       <div class="fs-trow">
         <div class="fs-tlabel">市区町村<span class="fs-badge">必須</span></div>
-        <div class="fs-tfield"><select class="fs-city" name="city_code" id="fs-city" required><option value="">市区町村</option></select></div>
+        <div class="fs-tfield"><select class="fs-city" name="city_code" id="fs-city" required><option value="">先に都道府県を選択</option></select></div>
       </div>
 
       <div class="fs-coverage"></div>
@@ -1182,7 +1182,7 @@ function fs_shortcode($atts = array()) {
 
   pref.addEventListener('change', function(){
     var list = CITIES[pref.value] || [];
-    city.innerHTML = '<option value="">' + (TEASER ? '市区町村' : '選択してください') + '</option>' +
+    city.innerHTML = '<option value="">' + (pref.value ? '選択してください' : '先に都道府県を選択') + '</option>' +
       list.map(function(c){ return '<option value="'+c[0]+'">'+c[1]+'</option>'; }).join('');
     if (district) district.innerHTML = '<option value="">市区町村を選ぶと表示されます</option>';
     TYPE_COUNTS = null; renderCoverage(); updateTeaserState();

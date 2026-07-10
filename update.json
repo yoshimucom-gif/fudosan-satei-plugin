@@ -1,6 +1,6 @@
 {
   "name": "かんたん不動産AI査定",
-  "version": "1.5.0",
+  "version": "1.5.1",
   "download_url": "https://raw.githubusercontent.com/yoshimucom-gif/fudosan-satei-plugin/main/fudosan-satei.zip",
   "requires": "5.8",
   "tested": "6.7",
@@ -8,6 +8,6 @@
   "author": "ミカタ株式会社",
   "homepage": "https://github.com/yoshimucom-gif/fudosan-satei-plugin",
   "sections": {
-    "changelog": "1.5.0\n・設定に「デザイン」タブを追加(ブランドカラー/ボタン文字色/見出し色/必須バッジ色をカラーピッカーで設定、全デザインに反映) ・teaser下部の注記を既定で非表示にし、note属性で任意表示に"
+    "changelog": "1.5.1\n・ラベルとプレースホルダーの重複を解消(プレースホルダーは「選択してください」に統一) ・市区町村は都道府県未選択時「先に都道府県を選択」、選択後「選択してください」に切替"
   }
 }
