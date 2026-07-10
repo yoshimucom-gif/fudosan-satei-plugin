@@ -1,6 +1,6 @@
 {
   "name": "かんたん不動産AI査定",
-  "version": "1.0.8",
+  "version": "1.0.9",
   "download_url": "https://raw.githubusercontent.com/yoshimucom-gif/fudosan-satei-plugin/main/fudosan-satei.zip",
   "requires": "5.8",
   "tested": "6.7",
@@ -8,6 +8,6 @@
   "author": "ミカタ株式会社",
   "homepage": "https://github.com/yoshimucom-gif/fudosan-satei-plugin",
   "sections": {
-    "changelog": "1.0.8\n・設定画面をタブ化(基本/表示項目・対象エリア/自動返信メール) ・フォームの表示項目を選択可能に ・対象エリア(都道府県)を限定可能に ・自動返信メールの件名/本文を差し込みタグ付きでカスタマイズ可能に"
+    "changelog": "1.0.9\n・フォームの外枠(カード枠)を削除 ・幅をメインカラム100%に"
   }
 }
