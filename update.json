@@ -1,6 +1,6 @@
 {
   "name": "かんたん不動産AI査定",
-  "version": "1.4.2",
+  "version": "1.5.0",
   "download_url": "https://raw.githubusercontent.com/yoshimucom-gif/fudosan-satei-plugin/main/fudosan-satei.zip",
   "requires": "5.8",
   "tested": "6.7",
@@ -8,6 +8,6 @@
   "author": "ミカタ株式会社",
   "homepage": "https://github.com/yoshimucom-gif/fudosan-satei-plugin",
   "sections": {
-    "changelog": "1.4.2\n・設定画面に「使い方」タブを追加(ショートコード全パターン・属性一覧・ステップ構成の手順) ・同梱readmeを最新化"
+    "changelog": "1.5.0\n・設定に「デザイン」タブを追加(ブランドカラー/ボタン文字色/見出し色/必須バッジ色をカラーピッカーで設定、全デザインに反映) ・teaser下部の注記を既定で非表示にし、note属性で任意表示に"
   }
 }

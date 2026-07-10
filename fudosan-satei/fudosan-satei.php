@@ -2,7 +2,7 @@
 /**
  * Plugin Name: かんたん不動産AI査定
  * Description: 匿名の不動産価格査定フォーム。国交省「不動産情報ライブラリ」の実成約事例から参考価格レンジを算出し、結果をメール送信＋リード保存。ショートコード [fudosan_satei] をページに貼るだけ。
- * Version: 1.4.2
+ * Version: 1.5.0
  * Author: (運営者)
  * License: GPLv2 or later
  * Text Domain: fudosan-satei
@@ -14,7 +14,7 @@
 
 if (!defined('ABSPATH')) exit; // 直接アクセス禁止
 
-define('FS_VER', '1.4.2');
+define('FS_VER', '1.5.0');
 define('FS_OPT', 'fudosan_satei_options');
 define('FS_ENDPOINT', 'https://www.reinfolib.mlit.go.jp/ex-api/external/XIT001');
 
@@ -140,7 +140,20 @@ function fs_sanitize_options($in) {
         // 自動返信メール
         'mail_subject'     => sanitize_text_field($in['mail_subject'] ?? ''),
         'mail_body'        => sanitize_textarea_field($in['mail_body'] ?? ''),
+        // 装飾（色）
+        'color_brand'      => sanitize_hex_color($in['color_brand'] ?? '')    ?: '#1f6feb',
+        'color_btn_text'   => sanitize_hex_color($in['color_btn_text'] ?? '') ?: '#ffffff',
+        'color_title'      => sanitize_hex_color($in['color_title'] ?? '')    ?: '#1f6feb',
+        'color_badge'      => sanitize_hex_color($in['color_badge'] ?? '')    ?: '#ff5a36',
     );
+}
+
+/* #rrggbb → "r,g,b"（ブランド色を rgba() で薄く使うため） */
+function fs_hex_to_rgb($hex) {
+    $hex = ltrim((string)$hex, '#');
+    if (strlen($hex) === 3) $hex = $hex[0].$hex[0].$hex[1].$hex[1].$hex[2].$hex[2];
+    if (strlen($hex) !== 6 || !ctype_xdigit($hex)) return '31,111,235';
+    return hexdec(substr($hex, 0, 2)) . ',' . hexdec(substr($hex, 2, 2)) . ',' . hexdec(substr($hex, 4, 2));
 }
 
 /* 表示項目の判定（未保存＝デフォルト表示、保存済みは値そのもの。空='非表示'を区別） */
@@ -203,6 +216,7 @@ function fs_settings_page() {
             <a href="#" class="nav-tab nav-tab-active" data-tab="basic">基本設定</a>
             <a href="#" class="nav-tab" data-tab="display">表示項目・対象エリア</a>
             <a href="#" class="nav-tab" data-tab="mail">自動返信メール</a>
+            <a href="#" class="nav-tab" data-tab="style">デザイン</a>
             <a href="#" class="nav-tab" data-tab="usage">使い方</a>
         </h2>
         <form method="post" action="options.php">
@@ -271,6 +285,29 @@ function fs_settings_page() {
             </table>
             </div>
 
+            <div class="fs-tabpanel" data-tab="style" style="display:none">
+            <h3>フォームの色</h3>
+            <p class="description">保存すると、標準・compact・card・teaser すべてのフォームに反映されます。</p>
+            <table class="form-table">
+                <tr><th>ブランドカラー</th><td>
+                    <input type="color" name="<?php echo FS_OPT; ?>[color_brand]" value="<?php echo esc_attr(fs_opt('color_brand', '#1f6feb')); ?>">
+                    <p class="description">ボタンの背景、査定価格の文字、入力済みチェック（✓）、次の入力欄のハイライトに使われます。</p>
+                </td></tr>
+                <tr><th>ボタンの文字色</th><td>
+                    <input type="color" name="<?php echo FS_OPT; ?>[color_btn_text]" value="<?php echo esc_attr(fs_opt('color_btn_text', '#ffffff')); ?>">
+                </td></tr>
+                <tr><th>見出しの色</th><td>
+                    <input type="color" name="<?php echo FS_OPT; ?>[color_title]" value="<?php echo esc_attr(fs_opt('color_title', '#1f6feb')); ?>">
+                    <p class="description">teaser の見出し（例：60秒でかんたん入力！）の文字色。</p>
+                </td></tr>
+                <tr><th>「必須」バッジの色</th><td>
+                    <input type="color" name="<?php echo FS_OPT; ?>[color_badge]" value="<?php echo esc_attr(fs_opt('color_badge', '#ff5a36')); ?>">
+                    <p class="description">未入力の項目に付くバッジ。入力すると「ブランドカラーの ✓」に変わります。</p>
+                </td></tr>
+            </table>
+            <p class="description">初期値：ブランド <code>#1f6feb</code> ／ ボタン文字 <code>#ffffff</code> ／ 見出し <code>#1f6feb</code> ／ バッジ <code>#ff5a36</code></p>
+            </div>
+
             <div class="fs-tabpanel" data-tab="usage" style="display:none">
             <h3>ショートコードの貼り方</h3>
             <p>固定ページや投稿、ウィジェット（カスタムHTML）に貼ります。</p>
@@ -306,8 +343,10 @@ function fs_settings_page() {
                 <tr><td><code>title</code></td><td>teaser</td><td>見出し（省略時：60秒でかんたん入力！）</td></tr>
                 <tr><td><code>subtitle</code></td><td>teaser</td><td>小見出し</td></tr>
                 <tr><td><code>logo</code></td><td>teaser</td><td>ロゴ画像URL（メディアにアップしてURLを貼る）。指定するとロゴ左・見出し右の横並びに</td></tr>
+                <tr><td><code>note</code></td><td>teaser</td><td>フォーム下の小さな注記（省略時は表示なし）</td></tr>
                 </tbody>
             </table>
+            <p class="description">ボタン色・見出し色などの装飾は「<strong>デザイン</strong>」タブでまとめて設定します。</p>
 
             <h3>そのほか</h3>
             <ul style="list-style:disc;margin-left:20px">
@@ -816,6 +855,7 @@ add_shortcode('fudosan_satei', 'fs_shortcode');
 function fs_shortcode($atts = array()) {
     $a = shortcode_atts(array(
         'design' => 'default', 'url' => '', 'button' => '', 'title' => '', 'subtitle' => '', 'logo' => '',
+        'note' => '',
     ), $atts, 'fudosan_satei');
     $design = in_array($a['design'], array('default', 'compact', 'card', 'teaser'), true) ? $a['design'] : 'default';
     $compact = ($design === 'compact');
@@ -826,6 +866,14 @@ function fs_shortcode($atts = array()) {
     $t_title = $a['title'] !== ''    ? sanitize_text_field($a['title'])    : '60秒でかんたん入力！';
     $t_sub   = $a['subtitle'] !== '' ? sanitize_text_field($a['subtitle']) : '査定結果はメールでお届けします';
     $t_logo  = $a['logo'] !== ''     ? esc_url($a['logo'])                 : '';
+    $t_note  = $a['note'] !== ''     ? sanitize_text_field($a['note'])     : '';   // teaser下部の注記（既定は非表示）
+
+    // 装飾（設定画面のデザインタブ）
+    $c_brand    = fs_opt('color_brand', '#1f6feb');
+    $c_btn_text = fs_opt('color_btn_text', '#ffffff');
+    $c_title    = fs_opt('color_title', '#1f6feb');
+    $c_badge    = fs_opt('color_badge', '#ff5a36');
+    $c_brand_rgb = fs_hex_to_rgb($c_brand);
 
     // compact/teaser は入力を最小限に（compactでは築年は精度のため残す）
     $show_district   = fs_show('district')   && !$compact && !$teaser;
@@ -873,7 +921,7 @@ function fs_shortcode($atts = array()) {
     ob_start(); ?>
 <div class="fs-wrap fs-design-<?php echo esc_attr($design); ?>" id="<?php echo esc_attr($uid); ?>">
   <style>
-    .fs-wrap{--fs-brand:#1f6feb;--fs-ink:#1a1f36;--fs-muted:#6b7280;--fs-line:#e5e7eb;width:100%;max-width:none;margin:0;color:var(--fs-ink);font-family:inherit;line-height:1.75;font-size:17px}
+    .fs-wrap{--fs-brand:<?php echo esc_attr($c_brand); ?>;--fs-brand-rgb:<?php echo esc_attr($c_brand_rgb); ?>;--fs-btn-text:<?php echo esc_attr($c_btn_text); ?>;--fs-title:<?php echo esc_attr($c_title); ?>;--fs-badge-bg:<?php echo esc_attr($c_badge); ?>;--fs-ink:#1a1f36;--fs-muted:#6b7280;--fs-line:#e5e7eb;width:100%;max-width:none;margin:0;color:var(--fs-ink);font-family:inherit;line-height:1.75;font-size:17px}
     .fs-card{background:transparent;border:0;border-radius:0;padding:0}
     .fs-wrap label{display:block;font-weight:600;margin:18px 0 7px;font-size:19px}
     .fs-req{color:#c0392b;font-size:14px;margin-left:4px}
@@ -882,8 +930,9 @@ function fs_shortcode($atts = array()) {
     .fs-hint{color:var(--fs-muted);font-size:15px;margin-top:5px;line-height:1.7}
     .fs-check{display:flex;gap:9px;align-items:flex-start;margin-top:14px}
     .fs-check input{width:auto;margin-top:6px;transform:scale(1.2)}.fs-check label{margin:0;font-weight:400;font-size:16px}
-    .fs-wrap button{margin-top:24px;width:100%;background:var(--fs-brand);color:#fff;border:0;border-radius:10px;padding:18px;font-size:20px;font-weight:700;cursor:pointer}
-    .fs-wrap button:disabled{opacity:.6;cursor:wait}
+    .fs-wrap button{margin-top:24px;width:100%;background:var(--fs-brand);color:var(--fs-btn-text);border:0;border-radius:10px;padding:18px;font-size:20px;font-weight:700;cursor:pointer}
+    .fs-wrap button:hover{filter:brightness(.93)}
+    .fs-wrap button:disabled{opacity:.6;cursor:wait;filter:none}
     .fs-disc{background:#fff8e6;border:1px solid #f0e0a8;border-radius:10px;padding:15px 17px;font-size:14px;color:#6b5a12;margin-top:18px}
     .fs-err{background:#fdecea;border:1px solid #f5c6cb;color:#c0392b;padding:10px 12px;border-radius:9px;margin-bottom:10px;font-size:16px}
     .fs-price{font-size:34px;font-weight:800;color:var(--fs-brand);text-align:center;margin:8px 0}
@@ -912,7 +961,7 @@ function fs_shortcode($atts = array()) {
     /* teaser: ヘッダー */
     .fs-design-teaser .fs-card{padding:22px 20px}
     .fs-teaser-head{text-align:center;padding-bottom:14px;margin-bottom:6px;border-bottom:1px solid var(--fs-line)}
-    .fs-teaser-title{font-size:19px;font-weight:800;color:var(--fs-brand);line-height:1.4}
+    .fs-teaser-title{font-size:19px;font-weight:800;color:var(--fs-title);line-height:1.4}
     .fs-teaser-sub{font-size:13px;color:var(--fs-muted);margin-top:4px}
     /* ロゴあり: ロゴ左・テキスト右の横並び */
     .fs-teaser-head.fs-has-logo{display:flex;align-items:center;gap:12px;text-align:left}
@@ -928,17 +977,17 @@ function fs_shortcode($atts = array()) {
     .fs-design-teaser .fs-tlabel{flex:0 0 auto;width:112px;display:flex;align-items:center;gap:6px;font-weight:700;font-size:15px}
     .fs-design-teaser .fs-tfield{flex:1;min-width:0}
     .fs-design-teaser .fs-tfield select{margin:0}
-    .fs-badge{background:#ff5a36;color:#fff;font-size:11px;font-weight:700;border-radius:4px;padding:3px 6px;line-height:1;flex:0 0 auto}
+    .fs-badge{background:var(--fs-badge-bg);color:#fff;font-size:11px;font-weight:700;border-radius:4px;padding:3px 6px;line-height:1;flex:0 0 auto}
     .fs-badge.fs-done{background:var(--fs-brand);border-radius:50%;width:21px;height:21px;padding:0;font-size:12px;display:inline-flex;align-items:center;justify-content:center}
 
     /* teaser: 次に入力すべき欄をハイライト（ちかちか） */
-    .fs-design-teaser select.fs-next{border-color:#7fb2ff;animation:fsPulse 1.5s ease-in-out infinite}
+    .fs-design-teaser select.fs-next{border-color:rgba(var(--fs-brand-rgb),.55);animation:fsPulse 1.5s ease-in-out infinite}
     @keyframes fsPulse{
-      0%,100%{box-shadow:0 0 0 3px rgba(31,111,235,.16)}
-      50%{box-shadow:0 0 0 7px rgba(31,111,235,.28)}
+      0%,100%{box-shadow:0 0 0 3px rgba(var(--fs-brand-rgb),.16)}
+      50%{box-shadow:0 0 0 7px rgba(var(--fs-brand-rgb),.28)}
     }
     @media (prefers-reduced-motion:reduce){
-      .fs-design-teaser select.fs-next{animation:none;box-shadow:0 0 0 3px rgba(31,111,235,.20)}
+      .fs-design-teaser select.fs-next{animation:none;box-shadow:0 0 0 3px rgba(var(--fs-brand-rgb),.20)}
     }
 
     /* デザイン: card（全項目を枠＋影のカードで） */
@@ -1059,7 +1108,9 @@ function fs_shortcode($atts = array()) {
     </form>
 
 <?php if ($teaser): ?>
-    <div class="fs-note">次の画面で面積・築年などを入力すると、参考価格をメールでお届けします。<br>※AIによる参考価格（価格査定）で、不動産鑑定士による鑑定評価ではありません。</div>
+<?php if ($t_note !== ''): ?>
+    <div class="fs-note"><?php echo esc_html($t_note); ?></div>
+<?php endif; ?>
 <?php else: ?>
     <div class="fs-disc">
       本サービスの結果はAIによる簡易的な<strong>参考価格（価格査定）</strong>であり、不動産鑑定士による<strong>鑑定評価ではありません</strong>。実際の売却価格を保証するものではありません。
