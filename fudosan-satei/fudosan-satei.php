@@ -2,7 +2,7 @@
 /**
  * Plugin Name: かんたん不動産AI査定
  * Description: 匿名の不動産価格査定フォーム。国交省「不動産情報ライブラリ」の実成約事例から参考価格レンジを算出し、結果をメール送信＋リード保存。ショートコード [fudosan_satei] をページに貼るだけ。
- * Version: 1.6.0
+ * Version: 1.7.0
  * Author: (運営者)
  * License: GPLv2 or later
  * Text Domain: fudosan-satei
@@ -14,7 +14,7 @@
 
 if (!defined('ABSPATH')) exit; // 直接アクセス禁止
 
-define('FS_VER', '1.6.0');
+define('FS_VER', '1.7.0');
 define('FS_OPT', 'fudosan_satei_options');
 define('FS_ENDPOINT', 'https://www.reinfolib.mlit.go.jp/ex-api/external/XIT001');
 
@@ -948,9 +948,18 @@ function fs_shortcode($atts = array()) {
     .fs-wrap{--fs-brand:<?php echo esc_attr($c_brand); ?>;--fs-brand-rgb:<?php echo esc_attr($c_brand_rgb); ?>;--fs-btn-text:<?php echo esc_attr($c_btn_text); ?>;--fs-title:<?php echo esc_attr($c_title); ?>;--fs-badge-bg:<?php echo esc_attr($c_badge); ?>;--fs-ink:#1a1f36;--fs-muted:#6b7280;--fs-line:#e5e7eb;width:100%;max-width:none;margin:0;color:var(--fs-ink);font-family:inherit;line-height:1.75;font-size:17px}
     .fs-card{background:transparent;border:0;border-radius:0;padding:0}
     .fs-wrap label{display:block;font-weight:600;margin:18px 0 7px;font-size:19px}
-    .fs-req{color:#c0392b;font-size:14px;margin-left:4px}
-    .fs-req.fs-done{background:var(--fs-brand);color:#fff;border-radius:50%;width:19px;height:19px;display:inline-flex;align-items:center;justify-content:center;font-size:11px;margin-left:6px;vertical-align:middle;line-height:1}
-    .fs-wrap input,.fs-wrap select{width:100%;padding:14px 15px;border:1px solid #cbd5e1;border-radius:9px;font-size:18px;background:#fff;box-sizing:border-box}
+    /* 必須／任意バッジ */
+    .fs-req,.fs-opt{font-size:11px;font-weight:700;border-radius:4px;padding:4px 7px;line-height:1;margin-left:8px;display:inline-flex;align-items:center;vertical-align:middle;letter-spacing:.02em}
+    .fs-req{background:var(--fs-badge-bg);color:#fff}
+    .fs-opt{background:#eef1f5;color:#6b7280}
+    .fs-req.fs-done{background:var(--fs-brand);color:#fff;border-radius:50%;width:20px;height:20px;padding:0;font-size:12px;justify-content:center}
+
+    /* セクション見出し（メリハリ） */
+    .fs-section{display:flex;align-items:center;font-weight:800;font-size:17px;color:var(--fs-ink);margin:32px 0 4px;padding-left:11px;border-left:4px solid var(--fs-brand);line-height:1.5}
+    .fs-form > .fs-section:first-child{margin-top:0}
+
+    .fs-wrap input,.fs-wrap select{width:100%;padding:14px 15px;border:1px solid #cbd5e1;border-radius:9px;font-size:18px;background:#fff;box-sizing:border-box;transition:border-color .15s,box-shadow .15s}
+    .fs-wrap input:focus,.fs-wrap select:focus{outline:none;border-color:var(--fs-brand);box-shadow:0 0 0 3px rgba(var(--fs-brand-rgb),.15)}
     .fs-row{display:flex;gap:12px}.fs-row>div{flex:1}
     .fs-hint{color:var(--fs-muted);font-size:15px;margin-top:5px;line-height:1.7}
     .fs-check{display:flex;gap:9px;align-items:flex-start;margin-top:14px}
@@ -975,6 +984,7 @@ function fs_shortcode($atts = array()) {
     .fs-design-compact input,.fs-design-compact select,.fs-design-teaser input,.fs-design-teaser select{padding:11px 12px;font-size:16px}
     .fs-design-compact button,.fs-design-teaser button{margin-top:16px;padding:14px;font-size:17px}
     .fs-design-compact .fs-form .fs-hint,.fs-design-teaser .fs-form .fs-hint{display:none}
+    .fs-design-compact .fs-section{display:none} /* 短くするため見出しは省略 */
     .fs-design-compact .fs-coverage,.fs-design-teaser .fs-coverage{font-size:13px;margin-top:6px}
     .fs-design-compact .fs-check label{font-size:14px}
     .fs-design-compact .fs-disc{font-size:12px;padding:10px 12px;margin-top:12px}
@@ -1051,7 +1061,8 @@ function fs_shortcode($atts = array()) {
 <?php else: ?>
     <form class="fs-form" id="fs-form">
 <?php if ($show_purpose): ?>
-      <label>利用目的<span class="fs-hint" style="font-weight:400">任意</span></label>
+      <div class="fs-section">ご利用目的</div>
+      <label>どのようなご事情ですか<span class="fs-opt">任意</span></label>
       <select name="purpose">
         <option value="">選択してください</option>
 <?php foreach (fs_purposes() as $p): ?>
@@ -1060,6 +1071,7 @@ function fs_shortcode($atts = array()) {
       </select>
 <?php endif; ?>
 
+      <div class="fs-section">物件の情報</div>
       <label>物件種別<span class="fs-req">必須</span></label>
       <select name="ptype" required><?php echo $ptype_options; ?></select>
 
@@ -1078,8 +1090,9 @@ function fs_shortcode($atts = array()) {
 <?php endif; ?>
 
 <?php if ($show_district): ?>
-      <label>地区（町名）<span class="fs-hint" style="font-weight:400">任意・選ぶと査定精度が上がります</span></label>
+      <label>地区（町名）<span class="fs-opt">任意</span></label>
       <select class="fs-district" name="district"><option value="">市区町村を選ぶと表示されます</option></select>
+      <div class="fs-hint">選ぶと査定精度が上がります（同じ市区町村でも地区で相場が違うため）</div>
 <?php endif; ?>
 
 <?php if (!$teaser): ?>
@@ -1091,7 +1104,7 @@ function fs_shortcode($atts = array()) {
         </div>
 <?php if ($show_build_year): ?>
         <div>
-          <label>築年（西暦）</label>
+          <label>築年（西暦）<span class="fs-opt">任意</span></label>
           <input type="number" name="build_year" min="1950" max="<?php echo $year; ?>" placeholder="例：2015">
           <div class="fs-hint">土地の場合は不要</div>
         </div>
@@ -1102,18 +1115,18 @@ function fs_shortcode($atts = array()) {
 <?php if ($show_station): ?>
       <div class="fs-row">
         <div>
-          <label>最寄駅<span class="fs-hint" style="font-weight:400">任意</span></label>
+          <label>最寄駅<span class="fs-opt">任意</span></label>
           <input type="text" name="station_name" placeholder="例：渋谷駅">
         </div>
         <div>
-          <label>駅まで徒歩（分）<span class="fs-hint" style="font-weight:400">任意</span></label>
+          <label>駅まで徒歩（分）<span class="fs-opt">任意</span></label>
           <input type="number" name="station_min" min="0" max="60" placeholder="例：8">
         </div>
       </div>
 <?php endif; ?>
 
 <?php if ($show_floor_plan): ?>
-      <label>間取り<span class="fs-hint" style="font-weight:400">任意</span></label>
+      <label>間取り<span class="fs-opt">任意</span></label>
       <select name="floor_plan">
         <option value="">選択しない</option>
         <option>1R</option><option>1K</option><option>1DK</option><option>1LDK</option>
@@ -1124,6 +1137,7 @@ function fs_shortcode($atts = array()) {
 <?php endif; ?>
 
 <?php if (!$teaser): ?>
+      <div class="fs-section">ご連絡先</div>
       <label>結果をお届けするメールアドレス<span class="fs-req">必須</span></label>
       <input type="email" name="email" placeholder="you@example.com" required>
 
