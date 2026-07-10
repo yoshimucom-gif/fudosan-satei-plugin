@@ -1,6 +1,6 @@
 {
   "name": "かんたん不動産AI査定",
-  "version": "1.5.1",
+  "version": "1.6.0",
   "download_url": "https://raw.githubusercontent.com/yoshimucom-gif/fudosan-satei-plugin/main/fudosan-satei.zip",
   "requires": "5.8",
   "tested": "6.7",
@@ -8,6 +8,6 @@
   "author": "ミカタ株式会社",
   "homepage": "https://github.com/yoshimucom-gif/fudosan-satei-plugin",
   "sections": {
-    "changelog": "1.5.1\n・ラベルとプレースホルダーの重複を解消(プレースホルダーは「選択してください」に統一) ・市区町村は都道府県未選択時「先に都道府県を選択」、選択後「選択してください」に切替"
+    "changelog": "1.6.0\n・フル入力フォームにも入力ガイド演出を追加(必須->チェック、次の入力欄をハイライト) ・利用目的(売却検討/相続/離婚など)の項目を追加。リード一覧・CSV・メールに反映、表示ON/OFF可"
   }
 }

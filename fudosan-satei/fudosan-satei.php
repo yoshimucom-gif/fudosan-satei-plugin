@@ -2,7 +2,7 @@
 /**
  * Plugin Name: かんたん不動産AI査定
  * Description: 匿名の不動産価格査定フォーム。国交省「不動産情報ライブラリ」の実成約事例から参考価格レンジを算出し、結果をメール送信＋リード保存。ショートコード [fudosan_satei] をページに貼るだけ。
- * Version: 1.5.1
+ * Version: 1.6.0
  * Author: (運営者)
  * License: GPLv2 or later
  * Text Domain: fudosan-satei
@@ -14,7 +14,7 @@
 
 if (!defined('ABSPATH')) exit; // 直接アクセス禁止
 
-define('FS_VER', '1.5.1');
+define('FS_VER', '1.6.0');
 define('FS_OPT', 'fudosan_satei_options');
 define('FS_ENDPOINT', 'https://www.reinfolib.mlit.go.jp/ex-api/external/XIT001');
 
@@ -55,6 +55,7 @@ function fs_activate() {
         station_name VARCHAR(100) NULL,
         floor_plan VARCHAR(30) NULL,
         district VARCHAR(100) NULL,
+        purpose VARCHAR(50) NULL,
         low BIGINT NULL,
         mid BIGINT NULL,
         high BIGINT NULL,
@@ -79,6 +80,7 @@ function fs_ensure_columns() {
         'floor_plan'   => 'VARCHAR(30) NULL',
         'district'     => 'VARCHAR(100) NULL',
         'station_min'  => 'INT NULL',
+        'purpose'      => 'VARCHAR(50) NULL',
     );
     foreach ($need as $c => $def) {
         if (!in_array($c, $cols, true)) {
@@ -134,6 +136,7 @@ function fs_sanitize_options($in) {
         'show_station'     => !empty($in['show_station']) ? '1' : '',
         'show_floor_plan'  => !empty($in['show_floor_plan']) ? '1' : '',
         'show_build_year'  => !empty($in['show_build_year']) ? '1' : '',
+        'show_purpose'     => !empty($in['show_purpose']) ? '1' : '',
         'show_marketing'   => !empty($in['show_marketing']) ? '1' : '',
         // 対象エリア（空=全国）
         'areas'            => $areas,
@@ -145,6 +148,18 @@ function fs_sanitize_options($in) {
         'color_btn_text'   => sanitize_hex_color($in['color_btn_text'] ?? '') ?: '#ffffff',
         'color_title'      => sanitize_hex_color($in['color_title'] ?? '')    ?: '#1f6feb',
         'color_badge'      => sanitize_hex_color($in['color_badge'] ?? '')    ?: '#ff5a36',
+    );
+}
+
+/* 利用目的の選択肢（リードの質を測る重要データ） */
+function fs_purposes() {
+    return array(
+        '売却を検討している',
+        '相続した・相続する予定',
+        '離婚による財産分与',
+        '住み替えを検討している',
+        '資産価値を把握したい',
+        'その他',
     );
 }
 
@@ -248,6 +263,7 @@ function fs_settings_page() {
                 <label><input type="checkbox" name="<?php echo FS_OPT; ?>[show_station]" value="1" <?php checked(fs_show('station')); ?>> 最寄駅・駅まで徒歩（分）</label><br>
                 <label><input type="checkbox" name="<?php echo FS_OPT; ?>[show_floor_plan]" value="1" <?php checked(fs_show('floor_plan')); ?>> 間取り</label><br>
                 <label><input type="checkbox" name="<?php echo FS_OPT; ?>[show_build_year]" value="1" <?php checked(fs_show('build_year')); ?>> 築年</label><br>
+                <label><input type="checkbox" name="<?php echo FS_OPT; ?>[show_purpose]" value="1" <?php checked(fs_show('purpose')); ?>> 利用目的（売却検討・相続・離婚など）</label><br>
                 <label><input type="checkbox" name="<?php echo FS_OPT; ?>[show_marketing]" value="1" <?php checked(fs_show('marketing')); ?>> 「営業案内メールを希望」チェック欄</label>
                 <p class="description">チェックを外した項目はフォームに表示されません。<br>※ 種別・都道府県・市区町村・面積・メール・同意チェックは常に表示されます。</p>
             </td></tr></table>
@@ -271,7 +287,7 @@ function fs_settings_page() {
                     <textarea name="<?php echo FS_OPT; ?>[mail_body]" rows="22" style="width:100%;max-width:760px;font-family:monospace;font-size:13px"><?php echo esc_textarea(fs_opt('mail_body') ?: fs_default_mail_body()); ?></textarea>
                     <p class="description">
                         空欄にして保存すると初期文面に戻ります。使える差し込みタグ：<br>
-                        <code>{site_name}</code> <code>{property_details}</code>（物件情報のまとまり） <code>{price_low}</code> <code>{price_high}</code> <code>{price_mid}</code> <code>{reason}</code> <code>{ptype}</code> <code>{pref}</code> <code>{city}</code> <code>{district}</code> <code>{area}</code> <code>{floor_plan}</code> <code>{build_year}</code> <code>{station}</code> <code>{operator_name}</code> <code>{operator_contact}</code>
+                        <code>{site_name}</code> <code>{property_details}</code>（物件情報のまとまり） <code>{price_low}</code> <code>{price_high}</code> <code>{price_mid}</code> <code>{reason}</code> <code>{ptype}</code> <code>{pref}</code> <code>{city}</code> <code>{district}</code> <code>{area}</code> <code>{floor_plan}</code> <code>{build_year}</code> <code>{station}</code> <code>{purpose}</code> <code>{operator_name}</code> <code>{operator_contact}</code>
                         <br><strong style="color:#b32d2e">※「鑑定評価ではない」旨の免責文は必ず残してください（法的に重要です）。</strong>
                     </p>
                 </td></tr>
@@ -398,18 +414,20 @@ function fs_leads_page() {
     if ($dberr) echo '<div class="notice notice-error"><p><strong>直近に保存エラーが発生しました：</strong> ' . esc_html($dberr) . '<br>最新版に更新すると自動修復を試みます。次の査定で解消されない場合は、この赤いメッセージの文面を共有してください。</p></div>';
     echo '<p>登録数：' . $total . ' 件（表示は最新200件）　<a class="button button-primary" href="' . esc_url($export) . '">CSVエクスポート（Excel）</a></p>';
     echo '<table class="widefat striped"><thead><tr>';
-    echo '<th>日時</th><th>メール</th><th>所在地</th><th>種別</th><th>面積</th><th>間取り</th><th>築年</th><th>最寄駅</th><th>レンジ(万円)</th><th>事例数</th><th>営業可</th><th>操作</th></tr></thead><tbody>';
+    echo '<th>日時</th><th>メール</th><th>利用目的</th><th>所在地</th><th>種別</th><th>面積</th><th>間取り</th><th>築年</th><th>最寄駅</th><th>レンジ(万円)</th><th>事例数</th><th>営業可</th><th>操作</th></tr></thead><tbody>';
     if ($rows) foreach ($rows as $r) {
         $st = trim((isset($r->station_name) ? $r->station_name : '') . (!empty($r->station_min) ? " 徒歩{$r->station_min}分" : ''));
         $del = wp_nonce_url(admin_url('admin-post.php?action=fs_delete_lead&id=' . $r->id), 'fs_delete_lead_' . $r->id);
-        printf('<tr><td>%s</td><td>%s</td><td>%s %s %s</td><td>%s</td><td>%s㎡</td><td>%s</td><td>%s</td><td>%s</td><td>%s〜%s</td><td>%s</td><td>%s</td><td><a href="%s" onclick="return confirm(\'このリードを削除しますか？\')" style="color:#b32d2e">削除</a></td></tr>',
-            esc_html($r->created_at), esc_html($r->email), esc_html($r->pref), esc_html($r->city),
+        printf('<tr><td>%s</td><td>%s</td><td>%s</td><td>%s %s %s</td><td>%s</td><td>%s㎡</td><td>%s</td><td>%s</td><td>%s</td><td>%s〜%s</td><td>%s</td><td>%s</td><td><a href="%s" onclick="return confirm(\'このリードを削除しますか？\')" style="color:#b32d2e">削除</a></td></tr>',
+            esc_html($r->created_at), esc_html($r->email),
+            esc_html((isset($r->purpose) && $r->purpose !== '') ? $r->purpose : '-'),
+            esc_html($r->pref), esc_html($r->city),
             esc_html((isset($r->district) && $r->district !== '') ? $r->district : ''),
             esc_html($r->ptype), esc_html($r->area), esc_html((isset($r->floor_plan) && $r->floor_plan !== '') ? $r->floor_plan : '-'), esc_html($r->build_year ?: '-'),
             esc_html($st !== '' ? $st : '-'),
             $r->low ? number_format($r->low/10000) : '-', $r->high ? number_format($r->high/10000) : '-',
             esc_html($r->sample_size), $r->marketing_opt_in ? '○' : '', esc_url($del));
-    } else echo '<tr><td colspan="12">まだありません</td></tr>';
+    } else echo '<tr><td colspan="13">まだありません</td></tr>';
     echo '</tbody></table></div>';
 }
 
@@ -424,8 +442,8 @@ function fs_export_leads() {
     header('Content-Type: text/csv; charset=Shift_JIS');
     header('Content-Disposition: attachment; filename="satei_leads.csv"');
     $out = fopen('php://output', 'w');
-    $head = array('ID','日時','メール','都道府県','市区町村','地区','種別','面積','間取り','築年','最寄駅','徒歩分','下限(円)','中央(円)','上限(円)','事例数','営業同意');
-    $cols = array('id','created_at','email','pref','city','district','ptype','area','floor_plan','build_year','station_name','station_min','low','mid','high','sample_size','marketing_opt_in');
+    $head = array('ID','日時','メール','利用目的','都道府県','市区町村','地区','種別','面積','間取り','築年','最寄駅','徒歩分','下限(円)','中央(円)','上限(円)','事例数','営業同意');
+    $cols = array('id','created_at','email','purpose','pref','city','district','ptype','area','floor_plan','build_year','station_name','station_min','low','mid','high','sample_size','marketing_opt_in');
     $sjis = function ($s) { return mb_convert_encoding((string)$s, 'SJIS-win', 'UTF-8'); };
     fputcsv($out, array_map($sjis, $head));
     foreach ($rows as $r) {
@@ -704,6 +722,7 @@ function fs_mail_body($ctx) {
     if (!empty($ctx['build_year'])) $pd[] = "■ 築年     : {$ctx['build_year']}年";
     $st = trim((!empty($ctx['station_name']) ? $ctx['station_name'] : '') . (!empty($ctx['station_min']) ? " 徒歩{$ctx['station_min']}分" : ''));
     if ($st !== '') $pd[] = "■ 最寄駅   : {$st}";
+    if (!empty($ctx['purpose'])) $pd[] = "■ 利用目的 : {$ctx['purpose']}";
 
     $repl = array(
         '{site_name}'        => fs_opt('site_name', 'AI査定'),
@@ -716,6 +735,7 @@ function fs_mail_body($ctx) {
         '{floor_plan}'       => isset($ctx['floor_plan']) ? $ctx['floor_plan'] : '',
         '{build_year}'       => isset($ctx['build_year']) ? $ctx['build_year'] : '',
         '{station}'          => $st,
+        '{purpose}'          => isset($ctx['purpose']) ? $ctx['purpose'] : '',
         '{price_low}'        => $ctx['low_man'],
         '{price_high}'       => $ctx['high_man'],
         '{price_mid}'        => $ctx['mid_man'],
@@ -772,6 +792,8 @@ function fs_ajax() {
     $sname = sanitize_text_field($_POST['station_name'] ?? '');
     $fplan = sanitize_text_field($_POST['floor_plan'] ?? '');
     $district = sanitize_text_field($_POST['district'] ?? '');
+    $purpose = sanitize_text_field($_POST['purpose'] ?? '');
+    if ($purpose !== '' && !in_array($purpose, fs_purposes(), true)) $purpose = ''; // 選択肢以外は無視
     $agree = !empty($_POST['agree']);
     $mkt   = !empty($_POST['marketing']);
 
@@ -795,7 +817,7 @@ function fs_ajax() {
         'created_at' => current_time('mysql'), 'email' => $email,
         'pref' => $pref_name, 'city' => $city_name, 'ptype' => $ptype,
         'area' => $area, 'build_year' => $byear, 'station_min' => $smin,
-        'station_name' => $sname, 'floor_plan' => $fplan, 'district' => $district,
+        'station_name' => $sname, 'floor_plan' => $fplan, 'district' => $district, 'purpose' => $purpose,
         'low' => $res['low'] ?? null, 'mid' => $res['mid'] ?? null, 'high' => $res['high'] ?? null,
         'sample_size' => $res['sample_size'] ?? 0, 'marketing_opt_in' => $mkt ? 1 : 0,
     ));
@@ -807,7 +829,7 @@ function fs_ajax() {
             'created_at' => current_time('mysql'), 'email' => $email,
             'pref' => $pref_name, 'city' => $city_name, 'ptype' => $ptype,
             'area' => $area, 'build_year' => $byear, 'station_min' => $smin,
-            'station_name' => $sname, 'floor_plan' => $fplan, 'district' => $district,
+            'station_name' => $sname, 'floor_plan' => $fplan, 'district' => $district, 'purpose' => $purpose,
             'low' => $res['low'] ?? null, 'mid' => $res['mid'] ?? null, 'high' => $res['high'] ?? null,
             'sample_size' => $res['sample_size'] ?? 0, 'marketing_opt_in' => $mkt ? 1 : 0,
         ));
@@ -824,6 +846,7 @@ function fs_ajax() {
     $ctx = array(
         'ptype_label' => $label, 'pref' => $pref_name, 'city' => $city_name, 'area' => $area, 'build_year' => $byear,
         'district' => $district, 'station_name' => $sname, 'station_min' => $smin, 'floor_plan' => $fplan,
+        'purpose' => $purpose,
         'low_man' => fs_yen_man($res['low']), 'mid_man' => fs_yen_man($res['mid']), 'high_man' => fs_yen_man($res['high']),
         'reason' => $res['reason'],
     );
@@ -836,7 +859,7 @@ function fs_ajax() {
         'ok' => true, 'mail_ok' => (bool)$mail_ok, 'email' => $email,
         'ptype_label' => $label, 'pref' => $pref_name, 'city' => $city_name,
         'area' => $area, 'build_year' => $byear, 'station_min' => $smin,
-        'station_name' => $sname, 'floor_plan' => $fplan, 'district' => $district,
+        'station_name' => $sname, 'floor_plan' => $fplan, 'district' => $district, 'purpose' => $purpose,
         'low_man' => $ctx['low_man'], 'mid_man' => $ctx['mid_man'], 'high_man' => $ctx['high_man'],
         'sample_size' => $res['sample_size'], 'reason' => $res['reason'],
     ));
@@ -880,6 +903,7 @@ function fs_shortcode($atts = array()) {
     $show_station    = fs_show('station')    && !$compact && !$teaser;
     $show_floor_plan = fs_show('floor_plan') && !$compact && !$teaser;
     $show_build_year = fs_show('build_year') && !$teaser;
+    $show_purpose    = fs_show('purpose')    && !$compact && !$teaser;
     $show_marketing  = fs_show('marketing')  && !$compact && !$teaser;
 
     $prefs  = fs_area_prefs();
@@ -925,6 +949,7 @@ function fs_shortcode($atts = array()) {
     .fs-card{background:transparent;border:0;border-radius:0;padding:0}
     .fs-wrap label{display:block;font-weight:600;margin:18px 0 7px;font-size:19px}
     .fs-req{color:#c0392b;font-size:14px;margin-left:4px}
+    .fs-req.fs-done{background:var(--fs-brand);color:#fff;border-radius:50%;width:19px;height:19px;display:inline-flex;align-items:center;justify-content:center;font-size:11px;margin-left:6px;vertical-align:middle;line-height:1}
     .fs-wrap input,.fs-wrap select{width:100%;padding:14px 15px;border:1px solid #cbd5e1;border-radius:9px;font-size:18px;background:#fff;box-sizing:border-box}
     .fs-row{display:flex;gap:12px}.fs-row>div{flex:1}
     .fs-hint{color:var(--fs-muted);font-size:15px;margin-top:5px;line-height:1.7}
@@ -980,14 +1005,14 @@ function fs_shortcode($atts = array()) {
     .fs-badge{background:var(--fs-badge-bg);color:#fff;font-size:11px;font-weight:700;border-radius:4px;padding:3px 6px;line-height:1;flex:0 0 auto}
     .fs-badge.fs-done{background:var(--fs-brand);border-radius:50%;width:21px;height:21px;padding:0;font-size:12px;display:inline-flex;align-items:center;justify-content:center}
 
-    /* teaser: 次に入力すべき欄をハイライト（ちかちか） */
-    .fs-design-teaser select.fs-next{border-color:rgba(var(--fs-brand-rgb),.55);animation:fsPulse 1.5s ease-in-out infinite}
+    /* 次に入力すべき欄をハイライト（全デザイン共通） */
+    .fs-wrap select.fs-next,.fs-wrap input.fs-next{border-color:rgba(var(--fs-brand-rgb),.55);animation:fsPulse 1.5s ease-in-out infinite}
     @keyframes fsPulse{
       0%,100%{box-shadow:0 0 0 3px rgba(var(--fs-brand-rgb),.16)}
       50%{box-shadow:0 0 0 7px rgba(var(--fs-brand-rgb),.28)}
     }
     @media (prefers-reduced-motion:reduce){
-      .fs-design-teaser select.fs-next{animation:none;box-shadow:0 0 0 3px rgba(var(--fs-brand-rgb),.20)}
+      .fs-wrap select.fs-next,.fs-wrap input.fs-next{animation:none;box-shadow:0 0 0 3px rgba(var(--fs-brand-rgb),.20)}
     }
 
     /* デザイン: card（全項目を枠＋影のカードで） */
@@ -1025,6 +1050,16 @@ function fs_shortcode($atts = array()) {
       <div class="fs-coverage"></div>
 <?php else: ?>
     <form class="fs-form" id="fs-form">
+<?php if ($show_purpose): ?>
+      <label>利用目的<span class="fs-hint" style="font-weight:400">任意</span></label>
+      <select name="purpose">
+        <option value="">選択してください</option>
+<?php foreach (fs_purposes() as $p): ?>
+        <option value="<?php echo esc_attr($p); ?>"><?php echo esc_html($p); ?></option>
+<?php endforeach; ?>
+      </select>
+<?php endif; ?>
+
       <label>物件種別<span class="fs-req">必須</span></label>
       <select name="ptype" required><?php echo $ptype_options; ?></select>
 
@@ -1160,37 +1195,53 @@ function fs_shortcode($atts = array()) {
     cov.innerHTML = html;
   }
 
-  // teaser: 入力済みは「必須」→青いチェックに、次に入力すべき欄を光らせる
-  function updateTeaserState(){
-    if (!TEASER) return;
-    var fields = [ptypeSel, pref, city];
-    var firstEmpty = -1;
-    fields.forEach(function(el, i){
+  // 入力済みの必須項目は「必須」→ ✓ に、次に入力すべき欄を光らせる（全デザイン共通）
+  var REQUIRED = TEASER ? ['ptype','pref_code','city_code']
+                        : ['ptype','pref_code','city_code','area','email'];
+
+  // teaser は .fs-trow 内の .fs-badge、それ以外は直前の <label> 内の .fs-req
+  function badgeFor(el){
+    var row = el.closest ? el.closest('.fs-trow') : null;
+    if (row) return row.querySelector('.fs-badge');
+    var lbl = el.previousElementSibling;
+    return (lbl && lbl.tagName === 'LABEL') ? lbl.querySelector('.fs-req') : null;
+  }
+
+  function updateFormState(){
+    var firstEmpty = null;
+    REQUIRED.forEach(function(name){
+      var el = form.elements[name];
       if (!el) return;
       el.classList.remove('fs-next');
-      var row = el.closest ? el.closest('.fs-trow') : null;
-      var badge = row ? row.querySelector('.fs-badge') : null;
-      var filled = !!el.value;
-      if (badge) {
-        if (filled) { badge.classList.add('fs-done'); badge.textContent = '✓'; }
-        else { badge.classList.remove('fs-done'); badge.textContent = '必須'; }
+      var b = badgeFor(el);
+      var filled = !!(el.value && String(el.value).trim() !== '');
+      if (b) {
+        if (filled) { b.classList.add('fs-done'); b.textContent = '✓'; }
+        else { b.classList.remove('fs-done'); b.textContent = '必須'; }
       }
-      if (!filled && firstEmpty < 0) firstEmpty = i;
+      if (!filled && !firstEmpty) firstEmpty = el;
     });
-    if (firstEmpty >= 0 && fields[firstEmpty]) fields[firstEmpty].classList.add('fs-next');
+    if (firstEmpty) firstEmpty.classList.add('fs-next');
   }
+
+  REQUIRED.forEach(function(name){
+    var el = form.elements[name];
+    if (!el) return;
+    el.addEventListener('change', updateFormState);
+    el.addEventListener('input', updateFormState);
+  });
 
   pref.addEventListener('change', function(){
     var list = CITIES[pref.value] || [];
     city.innerHTML = '<option value="">' + (pref.value ? '選択してください' : '先に都道府県を選択') + '</option>' +
       list.map(function(c){ return '<option value="'+c[0]+'">'+c[1]+'</option>'; }).join('');
     if (district) district.innerHTML = '<option value="">市区町村を選ぶと表示されます</option>';
-    TYPE_COUNTS = null; renderCoverage(); updateTeaserState();
+    TYPE_COUNTS = null; renderCoverage(); updateFormState();
   });
 
   city.addEventListener('change', function(){
     TYPE_COUNTS = null;
-    updateTeaserState();
+    updateFormState();
     if (!city.value) {
       if (district) district.innerHTML = '<option value="">市区町村を選ぶと表示されます</option>';
       renderCoverage();
@@ -1214,9 +1265,9 @@ function fs_shortcode($atts = array()) {
       });
   });
 
-  if (ptypeSel) ptypeSel.addEventListener('change', function(){ renderCoverage(); updateTeaserState(); });
+  if (ptypeSel) ptypeSel.addEventListener('change', function(){ renderCoverage(); updateFormState(); });
 
-  updateTeaserState(); // 初期表示（最初の未入力欄を光らせる）
+  updateFormState(); // 初期表示（最初の未入力欄を光らせる）
 
   // ステップ1（teaser）から引き継いだ値を復元し、市区町村・事例数まで自動で読み込む
   if (!TEASER && PREFILL && (PREFILL.ptype || PREFILL.pref)) {
@@ -1277,7 +1328,8 @@ function fs_shortcode($atts = array()) {
         + '<tr><th>面積</th><td>'+esc(d.area)+' ㎡</td></tr>'
         + (d.floor_plan ? '<tr><th>間取り</th><td>'+esc(d.floor_plan)+'</td></tr>' : '')
         + (d.build_year ? '<tr><th>築年</th><td>'+esc(d.build_year)+'年</td></tr>' : '')
-        + (st.trim() ? '<tr><th>最寄駅</th><td>'+st+'</td></tr>' : '');
+        + (st.trim() ? '<tr><th>最寄駅</th><td>'+st+'</td></tr>' : '')
+        + (d.purpose ? '<tr><th>利用目的</th><td>'+esc(d.purpose)+'</td></tr>' : '');
       html = '<h3 style="margin-top:0">査定結果</h3>'
         + '<p>ご入力の条件に基づく<strong>参考価格</strong>は以下の通りです。</p>'
         + '<div class="fs-price">'+esc(d.low_man)+' 〜 '+esc(d.high_man)+'</div>'
