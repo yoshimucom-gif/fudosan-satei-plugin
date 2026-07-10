@@ -1,6 +1,6 @@
 {
   "name": "かんたん不動産AI査定",
-  "version": "1.7.0",
+  "version": "1.8.0",
   "download_url": "https://raw.githubusercontent.com/yoshimucom-gif/fudosan-satei-plugin/main/fudosan-satei.zip",
   "requires": "5.8",
   "tested": "6.7",
@@ -8,6 +8,6 @@
   "author": "ミカタ株式会社",
   "homepage": "https://github.com/yoshimucom-gif/fudosan-satei-plugin",
   "sections": {
-    "changelog": "1.7.0\n・必須/任意をバッジ表示に変更 ・セクション見出し(ご利用目的/物件の情報/ご連絡先)を追加してメリハリを強化 ・入力欄にフォーカスリングを追加"
+    "changelog": "1.8.0\n・teaserの項目をfields属性で選択可能に(purpose/ptype/pref/city/area/build_year、書いた順に表示、cityはpref自動補完) ・選んだ項目はすべてフル入力フォームへ引き継ぎ(サーバー側で検証) ・ラベル折返しとバッジ潰れを修正"
   }
 }

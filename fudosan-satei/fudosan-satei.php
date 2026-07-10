@@ -2,7 +2,7 @@
 /**
  * Plugin Name: かんたん不動産AI査定
  * Description: 匿名の不動産価格査定フォーム。国交省「不動産情報ライブラリ」の実成約事例から参考価格レンジを算出し、結果をメール送信＋リード保存。ショートコード [fudosan_satei] をページに貼るだけ。
- * Version: 1.7.0
+ * Version: 1.8.0
  * Author: (運営者)
  * License: GPLv2 or later
  * Text Domain: fudosan-satei
@@ -14,7 +14,7 @@
 
 if (!defined('ABSPATH')) exit; // 直接アクセス禁止
 
-define('FS_VER', '1.7.0');
+define('FS_VER', '1.8.0');
 define('FS_OPT', 'fudosan_satei_options');
 define('FS_ENDPOINT', 'https://www.reinfolib.mlit.go.jp/ex-api/external/XIT001');
 
@@ -161,6 +161,33 @@ function fs_purposes() {
         '資産価値を把握したい',
         'その他',
     );
+}
+
+/* teaser で選べる項目（fields属性で指定）。req=必須扱い */
+function fs_teaser_fields() {
+    return array(
+        'purpose'    => array('label' => 'ご利用目的',   'name' => 'purpose',    'req' => false),
+        'ptype'      => array('label' => '物件種別',     'name' => 'ptype',      'req' => true),
+        'pref'       => array('label' => '都道府県',     'name' => 'pref_code',  'req' => true),
+        'city'       => array('label' => '市区町村',     'name' => 'city_code',  'req' => true),
+        'area'       => array('label' => '面積（㎡）',   'name' => 'area',       'req' => true),
+        'build_year' => array('label' => '築年（西暦）', 'name' => 'build_year', 'req' => false),
+    );
+}
+
+/* fields="ptype,pref,city" を検証済みの順序付きリストに */
+function fs_parse_teaser_fields($raw) {
+    $known = fs_teaser_fields();
+    $out = array();
+    foreach (explode(',', (string)$raw) as $k) {
+        $k = trim($k);
+        if ($k !== '' && isset($known[$k]) && !in_array($k, $out, true)) $out[] = $k;
+    }
+    if (!$out) $out = array('ptype', 'pref', 'city');
+    // 市区町村は都道府県が無いと選べないので、無ければ直前に補う
+    $ci = array_search('city', $out, true);
+    if ($ci !== false && !in_array('pref', $out, true)) array_splice($out, $ci, 0, array('pref'));
+    return $out;
 }
 
 /* #rrggbb → "r,g,b"（ブランド色を rgba() で薄く使うため） */
@@ -360,8 +387,14 @@ function fs_settings_page() {
                 <tr><td><code>subtitle</code></td><td>teaser</td><td>小見出し</td></tr>
                 <tr><td><code>logo</code></td><td>teaser</td><td>ロゴ画像URL（メディアにアップしてURLを貼る）。指定するとロゴ左・見出し右の横並びに</td></tr>
                 <tr><td><code>note</code></td><td>teaser</td><td>フォーム下の小さな注記（省略時は表示なし）</td></tr>
+                <tr><td><code>fields</code></td><td>teaser</td><td>
+                    出す項目をカンマ区切りで指定。省略時は <code>ptype,pref,city</code><br>
+                    使える値：<code>purpose</code>（ご利用目的・任意） <code>ptype</code>（物件種別） <code>pref</code>（都道府県） <code>city</code>（市区町村） <code>area</code>（面積） <code>build_year</code>（築年・任意）<br>
+                    <span class="description">書いた順に並びます。<code>city</code> を入れると <code>pref</code> が自動で補われます。選んだ項目は<strong>すべてフル入力フォームに引き継がれます</strong>。</span>
+                </td></tr>
                 </tbody>
             </table>
+            <p class="description">例：<code>[fudosan_satei design="teaser" url="/satei/" fields="purpose,ptype,pref,city"]</code>（ご利用目的から聞く4項目）</p>
             <p class="description">ボタン色・見出し色などの装飾は「<strong>デザイン</strong>」タブでまとめて設定します。</p>
 
             <h3>そのほか</h3>
@@ -878,7 +911,7 @@ add_shortcode('fudosan_satei', 'fs_shortcode');
 function fs_shortcode($atts = array()) {
     $a = shortcode_atts(array(
         'design' => 'default', 'url' => '', 'button' => '', 'title' => '', 'subtitle' => '', 'logo' => '',
-        'note' => '',
+        'note' => '', 'fields' => '',
     ), $atts, 'fudosan_satei');
     $design = in_array($a['design'], array('default', 'compact', 'card', 'teaser'), true) ? $a['design'] : 'default';
     $compact = ($design === 'compact');
@@ -890,6 +923,7 @@ function fs_shortcode($atts = array()) {
     $t_sub   = $a['subtitle'] !== '' ? sanitize_text_field($a['subtitle']) : '査定結果はメールでお届けします';
     $t_logo  = $a['logo'] !== ''     ? esc_url($a['logo'])                 : '';
     $t_note  = $a['note'] !== ''     ? sanitize_text_field($a['note'])     : '';   // teaser下部の注記（既定は非表示）
+    $t_fields = $teaser ? fs_parse_teaser_fields($a['fields']) : array();          // teaserに出す項目
 
     // 装飾（設定画面のデザインタブ）
     $c_brand    = fs_opt('color_brand', '#1f6feb');
@@ -910,16 +944,41 @@ function fs_shortcode($atts = array()) {
     $cities = fs_cities();
     $nonce  = wp_create_nonce('fudosan_satei');
 
-    // ステップ1から引き継いだ値（?fs_ptype=&fs_pref=&fs_city=）を検証して初期選択に使う
+    $ajax   = admin_url('admin-ajax.php');
+    $year   = intval(date('Y'));
+
+    // ステップ1から引き継いだ値（?fs_ptype=&fs_pref=&fs_city=&fs_purpose=&fs_area=&fs_build_year=）を検証
+    $g = function ($k) { return isset($_GET[$k]) ? sanitize_text_field(wp_unslash($_GET[$k])) : ''; };
     $prefill = array(
-        'ptype' => isset($_GET['fs_ptype']) ? sanitize_text_field(wp_unslash($_GET['fs_ptype'])) : '',
-        'pref'  => isset($_GET['fs_pref'])  ? sanitize_text_field(wp_unslash($_GET['fs_pref']))  : '',
-        'city'  => isset($_GET['fs_city'])  ? sanitize_text_field(wp_unslash($_GET['fs_city']))  : '',
+        'ptype'      => $g('fs_ptype'),
+        'pref'       => $g('fs_pref'),
+        'city'       => $g('fs_city'),
+        'purpose'    => $g('fs_purpose'),
+        'area'       => $g('fs_area'),
+        'build_year' => $g('fs_build_year'),
     );
     if (!isset($GLOBALS['FS_PTYPE_MAP'][$prefill['ptype']])) $prefill['ptype'] = '';
     if (!isset($prefs[$prefill['pref']])) { $prefill['pref'] = ''; $prefill['city'] = ''; }
-    $ajax   = admin_url('admin-ajax.php');
-    $year   = intval(date('Y'));
+    if ($prefill['city'] !== '') {                                   // 市区町村コードが都道府県に属するか
+        $ok = false;
+        foreach (($cities[$prefill['pref']] ?? array()) as $c) { if ($c[0] === $prefill['city']) { $ok = true; break; } }
+        if (!$ok) $prefill['city'] = '';
+    }
+    if ($prefill['purpose'] !== '' && !in_array($prefill['purpose'], fs_purposes(), true)) $prefill['purpose'] = '';
+    if ($prefill['area'] !== '' && (!is_numeric($prefill['area']) || $prefill['area'] <= 0 || $prefill['area'] > 100000)) $prefill['area'] = '';
+    if ($prefill['build_year'] !== '') {
+        $by = intval($prefill['build_year']);
+        $prefill['build_year'] = ($by >= 1950 && $by <= $year) ? (string)$by : '';
+    }
+
+    // 入力ガイド（必須→✓、次の欄を光らせる）の対象
+    if ($teaser) {
+        $reg = fs_teaser_fields();
+        $required_names = array();
+        foreach ($t_fields as $k) if ($reg[$k]['req']) $required_names[] = $reg[$k]['name'];
+    } else {
+        $required_names = array('ptype', 'pref_code', 'city_code', 'area', 'email');
+    }
     $privacy = fs_opt('privacy_url');
     $terms   = fs_opt('terms_url');
 
@@ -949,7 +1008,7 @@ function fs_shortcode($atts = array()) {
     .fs-card{background:transparent;border:0;border-radius:0;padding:0}
     .fs-wrap label{display:block;font-weight:600;margin:18px 0 7px;font-size:19px}
     /* 必須／任意バッジ */
-    .fs-req,.fs-opt{font-size:11px;font-weight:700;border-radius:4px;padding:4px 7px;line-height:1;margin-left:8px;display:inline-flex;align-items:center;vertical-align:middle;letter-spacing:.02em}
+    .fs-req,.fs-opt{font-size:11px;font-weight:700;border-radius:4px;padding:4px 7px;line-height:1;margin-left:8px;display:inline-flex;align-items:center;vertical-align:middle;letter-spacing:.02em;white-space:nowrap;flex:0 0 auto}
     .fs-req{background:var(--fs-badge-bg);color:#fff}
     .fs-opt{background:#eef1f5;color:#6b7280}
     .fs-req.fs-done{background:var(--fs-brand);color:#fff;border-radius:50%;width:20px;height:20px;padding:0;font-size:12px;justify-content:center}
@@ -1009,10 +1068,11 @@ function fs_shortcode($atts = array()) {
 
     /* teaser: ラベル横並び＋必須バッジ */
     .fs-design-teaser .fs-trow{display:flex;align-items:center;gap:10px;margin:14px 0}
-    .fs-design-teaser .fs-tlabel{flex:0 0 auto;width:112px;display:flex;align-items:center;gap:6px;font-weight:700;font-size:15px}
+    .fs-design-teaser .fs-tlabel{flex:0 0 auto;width:142px;display:flex;align-items:center;gap:6px;font-weight:700;font-size:15px;line-height:1.35}
     .fs-design-teaser .fs-tfield{flex:1;min-width:0}
-    .fs-design-teaser .fs-tfield select{margin:0}
-    .fs-badge{background:var(--fs-badge-bg);color:#fff;font-size:11px;font-weight:700;border-radius:4px;padding:3px 6px;line-height:1;flex:0 0 auto}
+    .fs-design-teaser .fs-tfield select,.fs-design-teaser .fs-tfield input{margin:0}
+    .fs-design-teaser .fs-tlabel .fs-req,.fs-design-teaser .fs-tlabel .fs-opt{margin-left:0}
+    .fs-badge{background:var(--fs-badge-bg);color:#fff;font-size:11px;font-weight:700;border-radius:4px;padding:4px 7px;line-height:1;flex:0 0 auto;white-space:nowrap}
     .fs-badge.fs-done{background:var(--fs-brand);border-radius:50%;width:21px;height:21px;padding:0;font-size:12px;display:inline-flex;align-items:center;justify-content:center}
 
     /* 次に入力すべき欄をハイライト（全デザイン共通） */
@@ -1044,18 +1104,32 @@ function fs_shortcode($atts = array()) {
       </div>
     </div>
     <form class="fs-form" id="fs-form">
+<?php $reg = fs_teaser_fields(); foreach ($t_fields as $k): $fd = $reg[$k]; ?>
       <div class="fs-trow">
-        <div class="fs-tlabel">物件種別<span class="fs-badge">必須</span></div>
-        <div class="fs-tfield"><select name="ptype" required><?php echo $ptype_options; ?></select></div>
+        <div class="fs-tlabel"><?php echo esc_html($fd['label']); ?><?php
+            echo $fd['req'] ? '<span class="fs-badge">必須</span>' : '<span class="fs-opt">任意</span>'; ?></div>
+        <div class="fs-tfield">
+<?php if ($k === 'purpose'): ?>
+          <select name="purpose">
+            <option value="">選択してください</option>
+<?php foreach (fs_purposes() as $p): ?>
+            <option value="<?php echo esc_attr($p); ?>"><?php echo esc_html($p); ?></option>
+<?php endforeach; ?>
+          </select>
+<?php elseif ($k === 'ptype'): ?>
+          <select name="ptype" required><?php echo $ptype_options; ?></select>
+<?php elseif ($k === 'pref'): ?>
+          <select class="fs-pref" name="pref_code" id="fs-pref" required><?php echo $pref_options; ?></select>
+<?php elseif ($k === 'city'): ?>
+          <select class="fs-city" name="city_code" id="fs-city" required><option value="">先に都道府県を選択</option></select>
+<?php elseif ($k === 'area'): ?>
+          <input type="number" name="area" step="0.01" min="1" placeholder="例：70" required>
+<?php elseif ($k === 'build_year'): ?>
+          <input type="number" name="build_year" min="1950" max="<?php echo $year; ?>" placeholder="例：2015">
+<?php endif; ?>
+        </div>
       </div>
-      <div class="fs-trow">
-        <div class="fs-tlabel">都道府県<span class="fs-badge">必須</span></div>
-        <div class="fs-tfield"><select class="fs-pref" name="pref_code" id="fs-pref" required><?php echo $pref_options; ?></select></div>
-      </div>
-      <div class="fs-trow">
-        <div class="fs-tlabel">市区町村<span class="fs-badge">必須</span></div>
-        <div class="fs-tfield"><select class="fs-city" name="city_code" id="fs-city" required><option value="">先に都道府県を選択</option></select></div>
-      </div>
+<?php endforeach; ?>
 
       <div class="fs-coverage"></div>
 <?php else: ?>
@@ -1210,8 +1284,7 @@ function fs_shortcode($atts = array()) {
   }
 
   // 入力済みの必須項目は「必須」→ ✓ に、次に入力すべき欄を光らせる（全デザイン共通）
-  var REQUIRED = TEASER ? ['ptype','pref_code','city_code']
-                        : ['ptype','pref_code','city_code','area','email'];
+  var REQUIRED = <?php echo wp_json_encode($required_names); ?>;
 
   // teaser は .fs-trow 内の .fs-badge、それ以外は直前の <label> 内の .fs-req
   function badgeFor(el){
@@ -1245,15 +1318,15 @@ function fs_shortcode($atts = array()) {
     el.addEventListener('input', updateFormState);
   });
 
-  pref.addEventListener('change', function(){
+  if (pref) pref.addEventListener('change', function(){
     var list = CITIES[pref.value] || [];
-    city.innerHTML = '<option value="">' + (pref.value ? '選択してください' : '先に都道府県を選択') + '</option>' +
+    if (city) city.innerHTML = '<option value="">' + (pref.value ? '選択してください' : '先に都道府県を選択') + '</option>' +
       list.map(function(c){ return '<option value="'+c[0]+'">'+c[1]+'</option>'; }).join('');
     if (district) district.innerHTML = '<option value="">市区町村を選ぶと表示されます</option>';
     TYPE_COUNTS = null; renderCoverage(); updateFormState();
   });
 
-  city.addEventListener('change', function(){
+  if (city) city.addEventListener('change', function(){
     TYPE_COUNTS = null;
     updateFormState();
     if (!city.value) {
@@ -1284,16 +1357,21 @@ function fs_shortcode($atts = array()) {
   updateFormState(); // 初期表示（最初の未入力欄を光らせる）
 
   // ステップ1（teaser）から引き継いだ値を復元し、市区町村・事例数まで自動で読み込む
-  if (!TEASER && PREFILL && (PREFILL.ptype || PREFILL.pref)) {
+  if (!TEASER && PREFILL) {
+    ['purpose','area','build_year'].forEach(function(n){
+      var el = form.elements[n];
+      if (el && PREFILL[n]) el.value = PREFILL[n];
+    });
     if (PREFILL.ptype && ptypeSel) ptypeSel.value = PREFILL.ptype;
-    if (PREFILL.pref) {
+    if (PREFILL.pref && pref) {
       pref.value = PREFILL.pref;
       pref.dispatchEvent(new Event('change'));
-      if (PREFILL.city) {
+      if (PREFILL.city && city) {
         city.value = PREFILL.city;
         city.dispatchEvent(new Event('change'));
       }
     }
+    updateFormState();
   }
 
   function esc(s){ var d=document.createElement('div'); d.textContent=s==null?'':s; return d.innerHTML; }
@@ -1304,10 +1382,13 @@ function fs_shortcode($atts = array()) {
     // ステップ1（teaser）: 入力値をURLに載せてフル入力フォームへ引き継ぐ
     if (TEASER) {
       if (!TARGET) return;
+      var MAP = { ptype:'fs_ptype', pref_code:'fs_pref', city_code:'fs_city',
+                  purpose:'fs_purpose', area:'fs_area', build_year:'fs_build_year' };
       var p = [];
-      if (ptypeSel && ptypeSel.value) p.push('fs_ptype=' + encodeURIComponent(ptypeSel.value));
-      if (pref.value) p.push('fs_pref=' + encodeURIComponent(pref.value));
-      if (city.value) p.push('fs_city=' + encodeURIComponent(city.value));
+      Object.keys(MAP).forEach(function(n){
+        var el = form.elements[n];
+        if (el && el.value) p.push(MAP[n] + '=' + encodeURIComponent(el.value));
+      });
       window.location.href = TARGET + (TARGET.indexOf('?') >= 0 ? '&' : '?') + p.join('&');
       return;
     }

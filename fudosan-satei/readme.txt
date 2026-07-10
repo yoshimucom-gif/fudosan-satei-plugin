@@ -45,6 +45,12 @@
    title    : teaser の見出し
    subtitle : teaser の小見出し
    logo     : teaser のロゴ画像URL（ロゴ左・見出し右の横並びになる）
+   note     : teaser のフォーム下に出す小さな注記（省略時なし）
+   fields   : teaser に出す項目をカンマ区切りで指定（省略時 ptype,pref,city）
+              使える値: purpose / ptype / pref / city / area / build_year
+              書いた順に並ぶ。city を入れると pref が自動で補われる。
+              選んだ項目はすべてフル入力フォームに引き継がれる。
+              例) fields="purpose,ptype,pref,city"
 
 
 ■ 設定タブ
