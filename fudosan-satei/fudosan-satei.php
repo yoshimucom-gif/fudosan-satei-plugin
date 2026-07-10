@@ -2,7 +2,7 @@
 /**
  * Plugin Name: かんたん不動産AI査定
  * Description: 匿名の不動産価格査定フォーム。国交省「不動産情報ライブラリ」の実成約事例から参考価格レンジを算出し、結果をメール送信＋リード保存。ショートコード [fudosan_satei] をページに貼るだけ。
- * Version: 1.2.0
+ * Version: 1.3.0
  * Author: (運営者)
  * License: GPLv2 or later
  * Text Domain: fudosan-satei
@@ -14,7 +14,7 @@
 
 if (!defined('ABSPATH')) exit; // 直接アクセス禁止
 
-define('FS_VER', '1.2.0');
+define('FS_VER', '1.3.0');
 define('FS_OPT', 'fudosan_satei_options');
 define('FS_ENDPOINT', 'https://www.reinfolib.mlit.go.jp/ex-api/external/XIT001');
 
@@ -720,20 +720,33 @@ add_shortcode('fudosan_satei', 'fs_shortcode');
  *   [fudosan_satei design="card"]    全項目をカード（枠＋影）で表示
  */
 function fs_shortcode($atts = array()) {
-    $a = shortcode_atts(array('design' => 'default'), $atts, 'fudosan_satei');
-    $design = in_array($a['design'], array('default', 'compact', 'card'), true) ? $a['design'] : 'default';
+    $a = shortcode_atts(array('design' => 'default', 'url' => '', 'button' => ''), $atts, 'fudosan_satei');
+    $design = in_array($a['design'], array('default', 'compact', 'card', 'teaser'), true) ? $a['design'] : 'default';
     $compact = ($design === 'compact');
+    $teaser  = ($design === 'teaser');   // ステップ1: 3項目だけ入力して本フォームへ引き継ぐ
+    $target  = esc_url($a['url']);
+    $btn     = $a['button'] !== '' ? sanitize_text_field($a['button'])
+                                   : ($teaser ? '査定をする' : '無料で査定結果を受け取る');
 
-    // コンパクトは入力を最小限に（築年は精度のため残す）
-    $show_district   = fs_show('district')   && !$compact;
-    $show_station    = fs_show('station')    && !$compact;
-    $show_floor_plan = fs_show('floor_plan') && !$compact;
-    $show_build_year = fs_show('build_year');
-    $show_marketing  = fs_show('marketing')  && !$compact;
+    // compact/teaser は入力を最小限に（compactでは築年は精度のため残す）
+    $show_district   = fs_show('district')   && !$compact && !$teaser;
+    $show_station    = fs_show('station')    && !$compact && !$teaser;
+    $show_floor_plan = fs_show('floor_plan') && !$compact && !$teaser;
+    $show_build_year = fs_show('build_year') && !$teaser;
+    $show_marketing  = fs_show('marketing')  && !$compact && !$teaser;
 
     $prefs  = fs_area_prefs();
     $cities = fs_cities();
     $nonce  = wp_create_nonce('fudosan_satei');
+
+    // ステップ1から引き継いだ値（?fs_ptype=&fs_pref=&fs_city=）を検証して初期選択に使う
+    $prefill = array(
+        'ptype' => isset($_GET['fs_ptype']) ? sanitize_text_field(wp_unslash($_GET['fs_ptype'])) : '',
+        'pref'  => isset($_GET['fs_pref'])  ? sanitize_text_field(wp_unslash($_GET['fs_pref']))  : '',
+        'city'  => isset($_GET['fs_city'])  ? sanitize_text_field(wp_unslash($_GET['fs_city']))  : '',
+    );
+    if (!isset($GLOBALS['FS_PTYPE_MAP'][$prefill['ptype']])) $prefill['ptype'] = '';
+    if (!isset($prefs[$prefill['pref']])) { $prefill['pref'] = ''; $prefill['city'] = ''; }
     $ajax   = admin_url('admin-ajax.php');
     $year   = intval(date('Y'));
     $privacy = fs_opt('privacy_url');
@@ -781,19 +794,20 @@ function fs_shortcode($atts = array()) {
     .fs-ok{color:#0a7d33;font-weight:600;font-size:16px}
     .fs-coverage{color:var(--fs-muted);font-size:14px;line-height:1.6;margin-top:8px}
 
-    /* デザイン: compact（メインビジュアル横などに収める短い版） */
-    .fs-design-compact{max-width:440px}
-    .fs-design-compact .fs-card{background:#fff;border:1px solid var(--fs-line);border-radius:14px;padding:20px 18px;box-shadow:0 8px 28px rgba(16,24,40,.10)}
-    .fs-design-compact label{font-size:16px;margin:12px 0 5px}
-    .fs-design-compact input,.fs-design-compact select{padding:11px 12px;font-size:16px}
-    .fs-design-compact button{margin-top:16px;padding:14px;font-size:17px}
-    .fs-design-compact .fs-form .fs-hint{display:none}
-    .fs-design-compact .fs-coverage{font-size:13px;margin-top:6px}
+    /* デザイン: compact / teaser（メインビジュアル横などに収める短い版） */
+    .fs-design-compact,.fs-design-teaser{max-width:440px}
+    .fs-design-compact .fs-card,.fs-design-teaser .fs-card{background:#fff;border:1px solid var(--fs-line);border-radius:14px;padding:20px 18px;box-shadow:0 8px 28px rgba(16,24,40,.10)}
+    .fs-design-compact label,.fs-design-teaser label{font-size:16px;margin:12px 0 5px}
+    .fs-design-compact input,.fs-design-compact select,.fs-design-teaser input,.fs-design-teaser select{padding:11px 12px;font-size:16px}
+    .fs-design-compact button,.fs-design-teaser button{margin-top:16px;padding:14px;font-size:17px}
+    .fs-design-compact .fs-form .fs-hint,.fs-design-teaser .fs-form .fs-hint{display:none}
+    .fs-design-compact .fs-coverage,.fs-design-teaser .fs-coverage{font-size:13px;margin-top:6px}
     .fs-design-compact .fs-check label{font-size:14px}
     .fs-design-compact .fs-disc{font-size:12px;padding:10px 12px;margin-top:12px}
     .fs-design-compact .fs-price{font-size:28px}
     .fs-design-compact .fs-spec{font-size:15px}
     .fs-design-compact .fs-spec th,.fs-design-compact .fs-spec td{padding:9px 8px}
+    .fs-design-teaser .fs-note{color:var(--fs-muted);font-size:12px;margin-top:10px;line-height:1.6}
 
     /* デザイン: card（全項目を枠＋影のカードで） */
     .fs-design-card .fs-card{background:#fff;border:1px solid var(--fs-line);border-radius:14px;padding:24px 22px;box-shadow:0 4px 18px rgba(16,24,40,.06)}
@@ -823,6 +837,7 @@ function fs_shortcode($atts = array()) {
       <select class="fs-district" name="district"><option value="">市区町村を選ぶと表示されます</option></select>
 <?php endif; ?>
 
+<?php if (!$teaser): ?>
       <div class="fs-row">
         <div>
           <label>面積（㎡）<span class="fs-req">必須</span></label>
@@ -837,6 +852,7 @@ function fs_shortcode($atts = array()) {
         </div>
 <?php endif; ?>
       </div>
+<?php endif; ?>
 
 <?php if ($show_station): ?>
       <div class="fs-row">
@@ -862,6 +878,7 @@ function fs_shortcode($atts = array()) {
       </select>
 <?php endif; ?>
 
+<?php if (!$teaser): ?>
       <label>結果をお届けするメールアドレス<span class="fs-req">必須</span></label>
       <input type="email" name="email" placeholder="you@example.com" required>
 
@@ -869,6 +886,7 @@ function fs_shortcode($atts = array()) {
         <input type="checkbox" name="agree" id="fs-agree" value="1" required>
         <label for="fs-agree"><?php echo $agree_label; ?></label>
       </div>
+<?php endif; ?>
 <?php if ($show_marketing): ?>
       <div class="fs-check">
         <input type="checkbox" name="marketing" id="fs-mkt" value="1">
@@ -876,12 +894,16 @@ function fs_shortcode($atts = array()) {
       </div>
 <?php endif; ?>
 
-      <button class="fs-submit" type="submit" id="fs-submit">無料で査定結果を受け取る</button>
+      <button class="fs-submit" type="submit" id="fs-submit"><?php echo esc_html($btn); ?></button>
     </form>
 
+<?php if ($teaser): ?>
+    <div class="fs-note">次の画面で面積・築年などを入力すると、参考価格をメールでお届けします。<br>※AIによる参考価格（価格査定）で、不動産鑑定士による鑑定評価ではありません。</div>
+<?php else: ?>
     <div class="fs-disc">
       本サービスの結果はAIによる簡易的な<strong>参考価格（価格査定）</strong>であり、不動産鑑定士による<strong>鑑定評価ではありません</strong>。実際の売却価格を保証するものではありません。
     </div>
+<?php endif; ?>
   </div>
 
   <div class="fs-card fs-result" id="fs-result" style="display:none"></div>
@@ -893,6 +915,9 @@ function fs_shortcode($atts = array()) {
   var AJAX = <?php echo wp_json_encode($ajax); ?>;
   var NONCE = <?php echo wp_json_encode($nonce); ?>;
   var WRAP_ID = <?php echo wp_json_encode($uid); ?>;
+  var TEASER = <?php echo $teaser ? 'true' : 'false'; ?>;
+  var TARGET = <?php echo wp_json_encode($target); ?>;
+  var PREFILL = <?php echo wp_json_encode($prefill); ?>;
 
   function init(){
   var wrap = document.getElementById(WRAP_ID);
@@ -958,10 +983,35 @@ function fs_shortcode($atts = array()) {
 
   if (ptypeSel) ptypeSel.addEventListener('change', renderCoverage);
 
+  // ステップ1（teaser）から引き継いだ値を復元し、市区町村・事例数まで自動で読み込む
+  if (!TEASER && PREFILL && (PREFILL.ptype || PREFILL.pref)) {
+    if (PREFILL.ptype && ptypeSel) ptypeSel.value = PREFILL.ptype;
+    if (PREFILL.pref) {
+      pref.value = PREFILL.pref;
+      pref.dispatchEvent(new Event('change'));
+      if (PREFILL.city) {
+        city.value = PREFILL.city;
+        city.dispatchEvent(new Event('change'));
+      }
+    }
+  }
+
   function esc(s){ var d=document.createElement('div'); d.textContent=s==null?'':s; return d.innerHTML; }
 
   form.addEventListener('submit', function(e){
     e.preventDefault();
+
+    // ステップ1（teaser）: 入力値をURLに載せてフル入力フォームへ引き継ぐ
+    if (TEASER) {
+      if (!TARGET) return;
+      var p = [];
+      if (ptypeSel && ptypeSel.value) p.push('fs_ptype=' + encodeURIComponent(ptypeSel.value));
+      if (pref.value) p.push('fs_pref=' + encodeURIComponent(pref.value));
+      if (city.value) p.push('fs_city=' + encodeURIComponent(city.value));
+      window.location.href = TARGET + (TARGET.indexOf('?') >= 0 ? '&' : '?') + p.join('&');
+      return;
+    }
+
     errBox.innerHTML = '';
     btn.disabled = true; btn.textContent = '査定中…';
 
