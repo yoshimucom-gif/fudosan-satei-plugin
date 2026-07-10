@@ -2,7 +2,7 @@
 /**
  * Plugin Name: かんたん不動産AI査定
  * Description: 匿名の不動産価格査定フォーム。国交省「不動産情報ライブラリ」の実成約事例から参考価格レンジを算出し、結果をメール送信＋リード保存。ショートコード [fudosan_satei] をページに貼るだけ。
- * Version: 1.8.0
+ * Version: 1.9.0
  * Author: (運営者)
  * License: GPLv2 or later
  * Text Domain: fudosan-satei
@@ -14,7 +14,7 @@
 
 if (!defined('ABSPATH')) exit; // 直接アクセス禁止
 
-define('FS_VER', '1.8.0');
+define('FS_VER', '1.9.0');
 define('FS_OPT', 'fudosan_satei_options');
 define('FS_ENDPOINT', 'https://www.reinfolib.mlit.go.jp/ex-api/external/XIT001');
 
@@ -1013,6 +1013,11 @@ function fs_shortcode($atts = array()) {
     .fs-opt{background:#eef1f5;color:#6b7280}
     .fs-req.fs-done{background:var(--fs-brand);color:#fff;border-radius:50%;width:20px;height:20px;padding:0;font-size:12px;justify-content:center}
 
+    /* 引き継ぎ時の「続きはこちらから」バナー */
+    .fs-resume{display:flex;align-items:baseline;flex-wrap:wrap;gap:4px 10px;background:rgba(var(--fs-brand-rgb),.07);border:1px solid rgba(var(--fs-brand-rgb),.22);border-left:4px solid var(--fs-brand);border-radius:8px;padding:12px 14px;margin:26px 0 6px;font-size:15px}
+    .fs-resume b{color:var(--fs-brand);font-weight:800}
+    .fs-resume span{color:var(--fs-muted);font-size:14px}
+
     /* セクション見出し（メリハリ） */
     .fs-section{display:flex;align-items:center;font-weight:800;font-size:17px;color:var(--fs-ink);margin:32px 0 4px;padding-left:11px;border-left:4px solid var(--fs-brand);line-height:1.5}
     .fs-form > .fs-section:first-child{margin-top:0}
@@ -1294,8 +1299,10 @@ function fs_shortcode($atts = array()) {
     return (lbl && lbl.tagName === 'LABEL') ? lbl.querySelector('.fs-req') : null;
   }
 
+  var resumeBox = null; // 「続きはこちらから」バナー
+
   function updateFormState(){
-    var firstEmpty = null;
+    var firstEmpty = null, remaining = 0;
     REQUIRED.forEach(function(name){
       var el = form.elements[name];
       if (!el) return;
@@ -1306,9 +1313,33 @@ function fs_shortcode($atts = array()) {
         if (filled) { b.classList.add('fs-done'); b.textContent = '✓'; }
         else { b.classList.remove('fs-done'); b.textContent = '必須'; }
       }
-      if (!filled && !firstEmpty) firstEmpty = el;
+      if (!filled) { remaining++; if (!firstEmpty) firstEmpty = el; }
     });
     if (firstEmpty) firstEmpty.classList.add('fs-next');
+
+    if (resumeBox) {
+      if (remaining === 0) { resumeBox.style.display = 'none'; }
+      else {
+        resumeBox.style.display = '';
+        resumeBox.querySelector('span').textContent = 'あと' + remaining + '項目で完了です';
+      }
+    }
+  }
+
+  // 引き継ぎで来たとき、最初の未入力欄の直前にバナーを差し込む
+  function insertResumeBanner(){
+    var el = wrap.querySelector('.fs-next');
+    if (!el) return;
+    var anchor = el;                                   // フォーム直下のブロックまで遡る
+    while (anchor && anchor.parentNode !== form) anchor = anchor.parentNode;
+    if (!anchor) return;
+    var prev = anchor.previousElementSibling;          // ラベルがあればその手前に置く
+    if (prev && prev.tagName === 'LABEL') anchor = prev;
+    resumeBox = document.createElement('div');
+    resumeBox.className = 'fs-resume';
+    resumeBox.innerHTML = '<b>↓ 続きはこちらから</b><span></span>';
+    form.insertBefore(resumeBox, anchor);
+    updateFormState();
   }
 
   REQUIRED.forEach(function(name){
@@ -1356,8 +1387,20 @@ function fs_shortcode($atts = array()) {
 
   updateFormState(); // 初期表示（最初の未入力欄を光らせる）
 
+  // 引き継ぎで来たときは、最初の未入力欄（＝光っている欄）まで自動スクロール
+  function scrollToFirstEmpty(){
+    var target = resumeBox || wrap.querySelector('.fs-next') || btn;
+    if (!target) return;
+    var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    // 市区町村の非同期読込でレイアウトが動くため、少し待ってから
+    setTimeout(function(){
+      target.scrollIntoView({ behavior: reduce ? 'auto' : 'smooth', block: 'center' });
+    }, 120);
+  }
+
   // ステップ1（teaser）から引き継いだ値を復元し、市区町村・事例数まで自動で読み込む
   if (!TEASER && PREFILL) {
+    var hasPrefill = Object.keys(PREFILL).some(function(k){ return !!PREFILL[k]; });
     ['purpose','area','build_year'].forEach(function(n){
       var el = form.elements[n];
       if (el && PREFILL[n]) el.value = PREFILL[n];
@@ -1372,6 +1415,10 @@ function fs_shortcode($atts = array()) {
       }
     }
     updateFormState();
+    if (hasPrefill) {                       // 引き継ぎ時のみ（通常の直アクセスでは動かさない）
+      insertResumeBanner();
+      scrollToFirstEmpty();
+    }
   }
 
   function esc(s){ var d=document.createElement('div'); d.textContent=s==null?'':s; return d.innerHTML; }
