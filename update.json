@@ -1,6 +1,6 @@
 {
   "name": "かんたん不動産AI査定",
-  "version": "1.0.6",
+  "version": "1.0.7",
   "download_url": "https://raw.githubusercontent.com/yoshimucom-gif/fudosan-satei-plugin/main/fudosan-satei.zip",
   "requires": "5.8",
   "tested": "6.7",
@@ -8,6 +8,6 @@
   "author": "ミカタ株式会社",
   "homepage": "https://github.com/yoshimucom-gif/fudosan-satei-plugin",
   "sections": {
-    "changelog": "1.0.6\n・フォーム幅を絞って見やすく ・文字サイズをpx固定にしてテーマ非依存で拡大"
+    "changelog": "1.0.7\n・査定結果ページの文字も全部px固定で拡大(価格34px/表17px)。フォーム含め全文字がテーマ非依存に"
   }
 }

@@ -2,7 +2,7 @@
 /**
  * Plugin Name: かんたん不動産AI査定
  * Description: 匿名の不動産価格査定フォーム。国交省「不動産情報ライブラリ」の実成約事例から参考価格レンジを算出し、結果をメール送信＋リード保存。ショートコード [fudosan_satei] をページに貼るだけ。
- * Version: 1.0.6
+ * Version: 1.0.7
  * Author: (運営者)
  * License: GPLv2 or later
  * Text Domain: fudosan-satei
@@ -14,7 +14,7 @@
 
 if (!defined('ABSPATH')) exit; // 直接アクセス禁止
 
-define('FS_VER', '1.0.6');
+define('FS_VER', '1.0.7');
 define('FS_OPT', 'fudosan_satei_options');
 define('FS_ENDPOINT', 'https://www.reinfolib.mlit.go.jp/ex-api/external/XIT001');
 
@@ -550,19 +550,19 @@ function fs_shortcode() {
     .fs-req{color:#c0392b;font-size:14px;margin-left:4px}
     .fs-wrap input,.fs-wrap select{width:100%;padding:14px 15px;border:1px solid #cbd5e1;border-radius:9px;font-size:18px;background:#fff;box-sizing:border-box}
     .fs-row{display:flex;gap:12px}.fs-row>div{flex:1}
-    .fs-hint{color:var(--fs-muted);font-size:14px;margin-top:5px}
+    .fs-hint{color:var(--fs-muted);font-size:15px;margin-top:5px;line-height:1.7}
     .fs-check{display:flex;gap:9px;align-items:flex-start;margin-top:14px}
     .fs-check input{width:auto;margin-top:6px;transform:scale(1.2)}.fs-check label{margin:0;font-weight:400;font-size:16px}
     .fs-wrap button{margin-top:24px;width:100%;background:var(--fs-brand);color:#fff;border:0;border-radius:10px;padding:18px;font-size:20px;font-weight:700;cursor:pointer}
     .fs-wrap button:disabled{opacity:.6;cursor:wait}
     .fs-disc{background:#fff8e6;border:1px solid #f0e0a8;border-radius:10px;padding:15px 17px;font-size:14px;color:#6b5a12;margin-top:18px}
-    .fs-err{background:#fdecea;border:1px solid #f5c6cb;color:#c0392b;padding:10px 12px;border-radius:9px;margin-bottom:10px;font-size:.9rem}
-    .fs-price{font-size:1.9rem;font-weight:800;color:var(--fs-brand);text-align:center;margin:6px 0}
-    .fs-mid{text-align:center;color:var(--fs-muted);font-size:.9rem}
-    .fs-spec{width:100%;border-collapse:collapse;margin:16px 0;font-size:.9rem}
-    .fs-spec th,.fs-spec td{border-bottom:1px solid var(--fs-line);padding:8px 6px;text-align:left}
+    .fs-err{background:#fdecea;border:1px solid #f5c6cb;color:#c0392b;padding:10px 12px;border-radius:9px;margin-bottom:10px;font-size:16px}
+    .fs-price{font-size:34px;font-weight:800;color:var(--fs-brand);text-align:center;margin:8px 0}
+    .fs-mid{text-align:center;color:var(--fs-muted);font-size:16px}
+    .fs-spec{width:100%;border-collapse:collapse;margin:16px 0;font-size:17px}
+    .fs-spec th,.fs-spec td{border-bottom:1px solid var(--fs-line);padding:12px 10px;text-align:left}
     .fs-spec th{color:var(--fs-muted);font-weight:600;width:38%}
-    .fs-ok{color:#0a7d33;font-weight:600}
+    .fs-ok{color:#0a7d33;font-weight:600;font-size:16px}
   </style>
 
   <div class="fs-card fs-form-card" id="fs-form-card">
