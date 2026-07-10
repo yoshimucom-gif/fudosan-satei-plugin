@@ -2,7 +2,7 @@
 /**
  * Plugin Name: かんたん不動産AI査定
  * Description: 匿名の不動産価格査定フォーム。国交省「不動産情報ライブラリ」の実成約事例から参考価格レンジを算出し、結果をメール送信＋リード保存。ショートコード [fudosan_satei] をページに貼るだけ。
- * Version: 1.0.7
+ * Version: 1.0.8
  * Author: (運営者)
  * License: GPLv2 or later
  * Text Domain: fudosan-satei
@@ -14,7 +14,7 @@
 
 if (!defined('ABSPATH')) exit; // 直接アクセス禁止
 
-define('FS_VER', '1.0.7');
+define('FS_VER', '1.0.8');
 define('FS_OPT', 'fudosan_satei_options');
 define('FS_ENDPOINT', 'https://www.reinfolib.mlit.go.jp/ex-api/external/XIT001');
 
@@ -83,6 +83,10 @@ add_action('admin_init', function () {
 });
 
 function fs_sanitize_options($in) {
+    $areas = array();
+    if (!empty($in['areas']) && is_array($in['areas'])) {
+        foreach ($in['areas'] as $a) { $a = sanitize_text_field($a); if ($a !== '') $areas[] = $a; }
+    }
     return array(
         'api_key'          => sanitize_text_field($in['api_key'] ?? ''),
         'use_mock'         => !empty($in['use_mock']) ? '1' : '',
@@ -92,15 +96,76 @@ function fs_sanitize_options($in) {
         'from_email'       => sanitize_email($in['from_email'] ?? get_option('admin_email')),
         'privacy_url'      => esc_url_raw($in['privacy_url'] ?? ''),
         'terms_url'        => esc_url_raw($in['terms_url'] ?? ''),
+        // 表示項目（未送信=チェック外れ=非表示）
+        'show_district'    => !empty($in['show_district']) ? '1' : '',
+        'show_station'     => !empty($in['show_station']) ? '1' : '',
+        'show_floor_plan'  => !empty($in['show_floor_plan']) ? '1' : '',
+        'show_build_year'  => !empty($in['show_build_year']) ? '1' : '',
+        'show_marketing'   => !empty($in['show_marketing']) ? '1' : '',
+        // 対象エリア（空=全国）
+        'areas'            => $areas,
+        // 自動返信メール
+        'mail_subject'     => sanitize_text_field($in['mail_subject'] ?? ''),
+        'mail_body'        => sanitize_textarea_field($in['mail_body'] ?? ''),
     );
 }
 
-function fs_settings_page() { ?>
+/* 表示項目の判定（未保存＝デフォルト表示、保存済みは値そのもの。空='非表示'を区別） */
+function fs_show($key) {
+    $o = get_option(FS_OPT, array());
+    if (!is_array($o) || !array_key_exists('show_' . $key, $o)) return true; // 未設定=表示
+    return $o['show_' . $key] === '1';
+}
+
+/* 対象エリアで都道府県を絞る（未設定なら全国）。数値文字列キーは整数化されるため非strict比較 */
+function fs_area_prefs() {
+    $all = fs_prefs();
+    $sel = fs_opt('areas', array());
+    if (empty($sel) || !is_array($sel)) return $all;
+    $sel = array_map('strval', $sel);
+    $out = array();
+    foreach ($all as $code => $name) if (in_array((string)$code, $sel, true)) $out[(string)$code] = $name;
+    return $out ?: $all;
+}
+
+/* 自動返信メールの初期本文（差し込みタグ付き） */
+function fs_default_mail_body() {
+    return "【{site_name}】査定結果のお知らせ\n\n"
+        . "この度はご利用ありがとうございます。ご入力の内容に基づく参考価格は以下の通りです。\n\n"
+        . "{property_details}\n\n"
+        . "─────────────────────\n"
+        . "  参考価格レンジ : {price_low} 〜 {price_high}\n"
+        . "  中央値の目安   : {price_mid}\n"
+        . "─────────────────────\n\n"
+        . "{reason}\n\n"
+        . "───────────────────────────────\n"
+        . "【重要なご注意】\n"
+        . "・本結果はAIによる簡易的な『参考価格（価格査定）』であり、\n"
+        . "  不動産鑑定士による『鑑定評価』ではありません。\n"
+        . "・過去の周辺取引事例からの機械的な推定値で、実際の売却価格・\n"
+        . "  成約価格を保証するものではありません。\n"
+        . "・正確な価格は、現地確認を含む個別査定が必要です。\n"
+        . "───────────────────────────────\n\n"
+        . "{operator_name}\n"
+        . "お問い合わせ: {operator_contact}";
+}
+
+function fs_settings_page() {
+    $o = get_option(FS_OPT, array());
+    $sel_areas = (isset($o['areas']) && is_array($o['areas'])) ? $o['areas'] : array();
+    ?>
     <div class="wrap">
         <h1>かんたん不動産AI査定 設定</h1>
         <p>ページに <code>[fudosan_satei]</code> を貼ると査定フォームが表示されます。</p>
+        <h2 class="nav-tab-wrapper" id="fs-tabs">
+            <a href="#" class="nav-tab nav-tab-active" data-tab="basic">基本設定</a>
+            <a href="#" class="nav-tab" data-tab="display">表示項目・対象エリア</a>
+            <a href="#" class="nav-tab" data-tab="mail">自動返信メール</a>
+        </h2>
         <form method="post" action="options.php">
             <?php settings_fields('fs_group'); ?>
+
+            <div class="fs-tabpanel" data-tab="basic">
             <table class="form-table">
                 <tr><th>APIキー</th><td>
                     <input type="text" name="<?php echo FS_OPT; ?>[api_key]" value="<?php echo esc_attr(fs_opt('api_key')); ?>" size="50">
@@ -117,9 +182,63 @@ function fs_settings_page() { ?>
                 <tr><th>プライバシーポリシーURL</th><td><input type="url" name="<?php echo FS_OPT; ?>[privacy_url]" value="<?php echo esc_attr(fs_opt('privacy_url')); ?>" size="50"></td></tr>
                 <tr><th>利用規約・免責URL</th><td><input type="url" name="<?php echo FS_OPT; ?>[terms_url]" value="<?php echo esc_attr(fs_opt('terms_url')); ?>" size="50"></td></tr>
             </table>
+            </div>
+
+            <div class="fs-tabpanel" data-tab="display" style="display:none">
+            <h3>フォームに表示する任意項目</h3>
+            <table class="form-table"><tr><th>表示する項目</th><td>
+                <label><input type="checkbox" name="<?php echo FS_OPT; ?>[show_district]" value="1" <?php checked(fs_show('district')); ?>> 地区（町名）</label><br>
+                <label><input type="checkbox" name="<?php echo FS_OPT; ?>[show_station]" value="1" <?php checked(fs_show('station')); ?>> 最寄駅・駅まで徒歩（分）</label><br>
+                <label><input type="checkbox" name="<?php echo FS_OPT; ?>[show_floor_plan]" value="1" <?php checked(fs_show('floor_plan')); ?>> 間取り</label><br>
+                <label><input type="checkbox" name="<?php echo FS_OPT; ?>[show_build_year]" value="1" <?php checked(fs_show('build_year')); ?>> 築年</label><br>
+                <label><input type="checkbox" name="<?php echo FS_OPT; ?>[show_marketing]" value="1" <?php checked(fs_show('marketing')); ?>> 「営業案内メールを希望」チェック欄</label>
+                <p class="description">チェックを外した項目はフォームに表示されません。<br>※ 種別・都道府県・市区町村・面積・メール・同意チェックは常に表示されます。</p>
+            </td></tr></table>
+
+            <h3>対象エリア（都道府県）</h3>
+            <p class="description">チェックした都道府県だけを選択肢に出します。<strong>1つも選ばなければ全国（47都道府県）</strong>が対象です。</p>
+            <div style="columns:4;-webkit-columns:4;max-width:820px;margin-top:8px">
+            <?php foreach (fs_prefs() as $code => $name): ?>
+                <label style="display:block;padding:2px 0"><input type="checkbox" name="<?php echo FS_OPT; ?>[areas][]" value="<?php echo esc_attr($code); ?>" <?php checked(in_array((string)$code, array_map('strval', $sel_areas), true)); ?>> <?php echo esc_html($name); ?></label>
+            <?php endforeach; ?>
+            </div>
+            </div>
+
+            <div class="fs-tabpanel" data-tab="mail" style="display:none">
+            <table class="form-table">
+                <tr><th>件名</th><td>
+                    <input type="text" name="<?php echo FS_OPT; ?>[mail_subject]" value="<?php echo esc_attr(fs_opt('mail_subject')); ?>" size="60" placeholder="【{site_name}】査定結果のお知らせ">
+                    <p class="description">空欄で初期件名（【サイト名】査定結果のお知らせ）。</p>
+                </td></tr>
+                <tr><th>本文</th><td>
+                    <textarea name="<?php echo FS_OPT; ?>[mail_body]" rows="22" style="width:100%;max-width:760px;font-family:monospace;font-size:13px"><?php echo esc_textarea(fs_opt('mail_body') ?: fs_default_mail_body()); ?></textarea>
+                    <p class="description">
+                        空欄にして保存すると初期文面に戻ります。使える差し込みタグ：<br>
+                        <code>{site_name}</code> <code>{property_details}</code>（物件情報のまとまり） <code>{price_low}</code> <code>{price_high}</code> <code>{price_mid}</code> <code>{reason}</code> <code>{ptype}</code> <code>{pref}</code> <code>{city}</code> <code>{district}</code> <code>{area}</code> <code>{floor_plan}</code> <code>{build_year}</code> <code>{station}</code> <code>{operator_name}</code> <code>{operator_contact}</code>
+                        <br><strong style="color:#b32d2e">※「鑑定評価ではない」旨の免責文は必ず残してください（法的に重要です）。</strong>
+                    </p>
+                </td></tr>
+            </table>
+            </div>
+
             <?php submit_button(); ?>
         </form>
     </div>
+    <script>
+    (function(){
+        var tabs = document.querySelectorAll('#fs-tabs .nav-tab');
+        var panels = document.querySelectorAll('.fs-tabpanel');
+        tabs.forEach(function(t){
+            t.addEventListener('click', function(e){
+                e.preventDefault();
+                tabs.forEach(function(x){ x.classList.remove('nav-tab-active'); });
+                t.classList.add('nav-tab-active');
+                var name = t.getAttribute('data-tab');
+                panels.forEach(function(p){ p.style.display = (p.getAttribute('data-tab') === name) ? '' : 'none'; });
+            });
+        });
+    })();
+    </script>
 <?php }
 
 function fs_leads_page() {
@@ -404,37 +523,46 @@ function fs_mock_records($city) {
  * 6. メール本文
  * ======================================================================= */
 function fs_mail_body($ctx) {
-    $site = fs_opt('site_name', 'AI査定');
-    $lines = array(
-        "【{$site}】査定結果のお知らせ", "",
-        "この度はご利用ありがとうございます。ご入力の内容に基づく参考価格は以下の通りです。", "",
-        "■ 物件種別 : {$ctx['ptype_label']}",
-        "■ 所在地   : {$ctx['pref']} {$ctx['city']}" . (!empty($ctx['district']) ? " {$ctx['district']}" : ""),
-        "■ 面積     : {$ctx['area']} ㎡",
-    );
-    if (!empty($ctx['floor_plan'])) $lines[] = "■ 間取り   : {$ctx['floor_plan']}";
-    if (!empty($ctx['build_year'])) $lines[] = "■ 築年     : {$ctx['build_year']}年";
+    $tmpl = fs_opt('mail_body', '');
+    if (trim($tmpl) === '') $tmpl = fs_default_mail_body();
+
+    // 物件情報のまとまり（入力があるものだけ行を出す）
+    $pd = array();
+    $pd[] = "■ 物件種別 : {$ctx['ptype_label']}";
+    $loc = trim($ctx['pref'] . ' ' . $ctx['city'] . (!empty($ctx['district']) ? ' ' . $ctx['district'] : ''));
+    $pd[] = "■ 所在地   : {$loc}";
+    $pd[] = "■ 面積     : {$ctx['area']} ㎡";
+    if (!empty($ctx['floor_plan'])) $pd[] = "■ 間取り   : {$ctx['floor_plan']}";
+    if (!empty($ctx['build_year'])) $pd[] = "■ 築年     : {$ctx['build_year']}年";
     $st = trim((!empty($ctx['station_name']) ? $ctx['station_name'] : '') . (!empty($ctx['station_min']) ? " 徒歩{$ctx['station_min']}分" : ''));
-    if ($st !== '') $lines[] = "■ 最寄駅   : {$st}";
-    $lines = array_merge($lines, array(
-        "",
-        "─────────────────────",
-        "  参考価格レンジ : {$ctx['low_man']} 〜 {$ctx['high_man']}",
-        "  中央値の目安   : {$ctx['mid_man']}",
-        "─────────────────────",
-        "", $ctx['reason'], "",
-        "───────────────────────────────",
-        "【重要なご注意】",
-        "・本結果はAIによる簡易的な『参考価格（価格査定）』であり、",
-        "  不動産鑑定士による『鑑定評価』ではありません。",
-        "・過去の周辺取引事例からの機械的な推定値で、実際の売却価格・",
-        "  成約価格を保証するものではありません。",
-        "・正確な価格は、現地確認を含む個別査定が必要です。",
-        "───────────────────────────────",
-    ));
-    $op = fs_opt('operator_name'); $ct = fs_opt('operator_contact');
-    if ($op || $ct) { $lines[] = ""; $lines[] = $op; $lines[] = "お問い合わせ: {$ct}"; }
-    return implode("\n", $lines);
+    if ($st !== '') $pd[] = "■ 最寄駅   : {$st}";
+
+    $repl = array(
+        '{site_name}'        => fs_opt('site_name', 'AI査定'),
+        '{property_details}' => implode("\n", $pd),
+        '{ptype}'            => $ctx['ptype_label'],
+        '{pref}'             => $ctx['pref'],
+        '{city}'             => $ctx['city'],
+        '{district}'         => isset($ctx['district']) ? $ctx['district'] : '',
+        '{area}'             => $ctx['area'],
+        '{floor_plan}'       => isset($ctx['floor_plan']) ? $ctx['floor_plan'] : '',
+        '{build_year}'       => isset($ctx['build_year']) ? $ctx['build_year'] : '',
+        '{station}'          => $st,
+        '{price_low}'        => $ctx['low_man'],
+        '{price_high}'       => $ctx['high_man'],
+        '{price_mid}'        => $ctx['mid_man'],
+        '{reason}'           => $ctx['reason'],
+        '{operator_name}'    => fs_opt('operator_name', ''),
+        '{operator_contact}' => fs_opt('operator_contact', ''),
+    );
+    return strtr($tmpl, $repl);
+}
+
+/* 件名テンプレ */
+function fs_mail_subject() {
+    $s = fs_opt('mail_subject', '');
+    if (trim($s) === '') $s = '【{site_name}】査定結果のお知らせ';
+    return strtr($s, array('{site_name}' => fs_opt('site_name', 'AI査定')));
 }
 
 /* =========================================================================
@@ -498,7 +626,7 @@ function fs_ajax() {
     $headers = array('Content-Type: text/plain; charset=UTF-8');
     $from = fs_opt('from_email'); $site = fs_opt('site_name', 'AI査定');
     if ($from) $headers[] = 'From: ' . $site . ' <' . $from . '>';
-    $mail_ok = wp_mail($email, "【{$site}】査定結果のお知らせ", fs_mail_body($ctx), $headers);
+    $mail_ok = wp_mail($email, fs_mail_subject(), fs_mail_body($ctx), $headers);
 
     wp_send_json(array(
         'ok' => true, 'mail_ok' => (bool)$mail_ok, 'email' => $email,
@@ -515,7 +643,7 @@ function fs_ajax() {
  * ======================================================================= */
 add_shortcode('fudosan_satei', 'fs_shortcode');
 function fs_shortcode() {
-    $prefs  = fs_prefs();
+    $prefs  = fs_area_prefs();
     $cities = fs_cities();
     $nonce  = wp_create_nonce('fudosan_satei');
     $ajax   = admin_url('admin-ajax.php');
@@ -582,8 +710,10 @@ function fs_shortcode() {
         </div>
       </div>
 
+<?php if (fs_show('district')): ?>
       <label>地区（町名）<span class="fs-hint" style="font-weight:400">任意・選ぶと査定精度が上がります</span></label>
       <select class="fs-district" name="district"><option value="">市区町村を選ぶと表示されます</option></select>
+<?php endif; ?>
 
       <div class="fs-row">
         <div>
@@ -591,13 +721,16 @@ function fs_shortcode() {
           <input type="number" name="area" step="0.01" min="1" placeholder="例：70" required>
           <div class="fs-hint">マンション・戸建は専有/延床、土地は敷地面積</div>
         </div>
+<?php if (fs_show('build_year')): ?>
         <div>
           <label>築年（西暦）</label>
           <input type="number" name="build_year" min="1950" max="<?php echo $year; ?>" placeholder="例：2015">
           <div class="fs-hint">土地の場合は不要</div>
         </div>
+<?php endif; ?>
       </div>
 
+<?php if (fs_show('station')): ?>
       <div class="fs-row">
         <div>
           <label>最寄駅<span class="fs-hint" style="font-weight:400">任意</span></label>
@@ -608,7 +741,9 @@ function fs_shortcode() {
           <input type="number" name="station_min" min="0" max="60" placeholder="例：8">
         </div>
       </div>
+<?php endif; ?>
 
+<?php if (fs_show('floor_plan')): ?>
       <label>間取り<span class="fs-hint" style="font-weight:400">任意</span></label>
       <select name="floor_plan">
         <option value="">選択しない</option>
@@ -617,6 +752,7 @@ function fs_shortcode() {
         <option>3K</option><option>3DK</option><option>3LDK</option>
         <option>4LDK以上</option>
       </select>
+<?php endif; ?>
 
       <label>結果をお届けするメールアドレス<span class="fs-req">必須</span></label>
       <input type="email" name="email" placeholder="you@example.com" required>
@@ -625,10 +761,12 @@ function fs_shortcode() {
         <input type="checkbox" name="agree" id="fs-agree" value="1" required>
         <label for="fs-agree"><?php echo $agree_label; ?></label>
       </div>
+<?php if (fs_show('marketing')): ?>
       <div class="fs-check">
         <input type="checkbox" name="marketing" id="fs-mkt" value="1">
         <label for="fs-mkt">売却に関するご提案・お役立ち情報のメール受け取りを希望します（任意）</label>
       </div>
+<?php endif; ?>
 
       <button class="fs-submit" type="submit" id="fs-submit">無料で査定結果を受け取る</button>
     </form>
@@ -662,10 +800,10 @@ function fs_shortcode() {
     var list = CITIES[pref.value] || [];
     city.innerHTML = '<option value="">選択してください</option>' +
       list.map(function(c){ return '<option value="'+c[0]+'">'+c[1]+'</option>'; }).join('');
-    district.innerHTML = '<option value="">市区町村を選ぶと表示されます</option>';
+    if (district) district.innerHTML = '<option value="">市区町村を選ぶと表示されます</option>';
   });
 
-  city.addEventListener('change', function(){
+  if (district) city.addEventListener('change', function(){
     if (!city.value) { district.innerHTML = '<option value="">市区町村を選ぶと表示されます</option>'; return; }
     district.innerHTML = '<option value="">読み込み中…</option>';
     fetch(AJAX + '?action=fudosan_satei_districts&city=' + encodeURIComponent(city.value), { credentials:'same-origin' })
