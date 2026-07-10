@@ -2,7 +2,7 @@
 /**
  * Plugin Name: かんたん不動産AI査定
  * Description: 匿名の不動産価格査定フォーム。国交省「不動産情報ライブラリ」の実成約事例から参考価格レンジを算出し、結果をメール送信＋リード保存。ショートコード [fudosan_satei] をページに貼るだけ。
- * Version: 1.3.0
+ * Version: 1.3.1
  * Author: (運営者)
  * License: GPLv2 or later
  * Text Domain: fudosan-satei
@@ -14,7 +14,7 @@
 
 if (!defined('ABSPATH')) exit; // 直接アクセス禁止
 
-define('FS_VER', '1.3.0');
+define('FS_VER', '1.3.1');
 define('FS_OPT', 'fudosan_satei_options');
 define('FS_ENDPOINT', 'https://www.reinfolib.mlit.go.jp/ex-api/external/XIT001');
 
@@ -189,7 +189,18 @@ function fs_settings_page() {
     ?>
     <div class="wrap">
         <h1>かんたん不動産AI査定 設定</h1>
-        <p>ページに <code>[fudosan_satei]</code> を貼ると査定フォームが表示されます。</p>
+        <?php if (isset($_GET['testmail'])) {
+            $tm_ok = ($_GET['testmail'] === '1');
+            $tm_to = isset($_GET['to']) ? sanitize_email(wp_unslash($_GET['to'])) : '';
+            echo '<div class="notice notice-' . ($tm_ok ? 'success' : 'error') . '"><p>' .
+                ($tm_ok
+                    ? 'テストメールを <strong>' . esc_html($tm_to) . '</strong> に送信しました。届かない場合は<strong>迷惑メールフォルダ</strong>も確認してください（届かない＝SPF/DKIM未設定の可能性大）。'
+                    : 'テストメールの送信に失敗しました。WP Mail SMTP などの送信設定を確認してください。') .
+                '</p></div>';
+        } ?>
+        <p>ページに <code>[fudosan_satei]</code> を貼ると査定フォームが表示されます。<br>
+        メインビジュアル横などに置く短縮版：<code>[fudosan_satei design="compact"]</code> ／
+        ステップ入口：<code>[fudosan_satei design="teaser" url="/satei/"]</code></p>
         <h2 class="nav-tab-wrapper" id="fs-tabs">
             <a href="#" class="nav-tab nav-tab-active" data-tab="basic">基本設定</a>
             <a href="#" class="nav-tab" data-tab="display">表示項目・対象エリア</a>
@@ -249,6 +260,13 @@ function fs_settings_page() {
                         空欄にして保存すると初期文面に戻ります。使える差し込みタグ：<br>
                         <code>{site_name}</code> <code>{property_details}</code>（物件情報のまとまり） <code>{price_low}</code> <code>{price_high}</code> <code>{price_mid}</code> <code>{reason}</code> <code>{ptype}</code> <code>{pref}</code> <code>{city}</code> <code>{district}</code> <code>{area}</code> <code>{floor_plan}</code> <code>{build_year}</code> <code>{station}</code> <code>{operator_name}</code> <code>{operator_contact}</code>
                         <br><strong style="color:#b32d2e">※「鑑定評価ではない」旨の免責文は必ず残してください（法的に重要です）。</strong>
+                    </p>
+                </td></tr>
+                <tr><th>到達確認</th><td>
+                    <a href="<?php echo esc_url(wp_nonce_url(admin_url('admin-post.php?action=fs_test_mail'), 'fs_test_mail')); ?>" class="button">テストメールを自分宛に送信</a>
+                    <p class="description">
+                        現在の件名・本文テンプレートでサンプルを送ります（保存してから押してください）。<br>
+                        <strong>迷惑メールに入る場合</strong>は「WP Mail SMTP」等でSMTP送信にし、送信ドメインの <code>SPF</code> / <code>DKIM</code> / <code>DMARC</code> を設定してください。
                     </p>
                 </td></tr>
             </table>
@@ -619,6 +637,27 @@ function fs_mail_subject() {
     $s = fs_opt('mail_subject', '');
     if (trim($s) === '') $s = '【{site_name}】査定結果のお知らせ';
     return strtr($s, array('{site_name}' => fs_opt('site_name', 'AI査定')));
+}
+
+/* テストメール送信（迷惑メール判定・文面の確認用） */
+add_action('admin_post_fs_test_mail', 'fs_test_mail');
+function fs_test_mail() {
+    if (!current_user_can('manage_options')) wp_die('権限がありません');
+    check_admin_referer('fs_test_mail');
+    $to = wp_get_current_user()->user_email;
+    $ctx = array(
+        'ptype_label' => '中古マンション', 'pref' => '東京都', 'city' => '渋谷区', 'district' => '恵比寿',
+        'area' => 70, 'floor_plan' => '2LDK', 'build_year' => 2015,
+        'station_name' => '恵比寿駅', 'station_min' => 5,
+        'low_man' => '6,000万円', 'mid_man' => '6,500万円', 'high_man' => '7,000万円',
+        'reason' => '（テスト送信です。実際にはここに査定根拠が入ります）',
+    );
+    $headers = array('Content-Type: text/plain; charset=UTF-8');
+    $from = fs_opt('from_email'); $site = fs_opt('site_name', 'AI査定');
+    if ($from) $headers[] = 'From: ' . $site . ' <' . $from . '>';
+    $ok = wp_mail($to, '[テスト] ' . fs_mail_subject(), fs_mail_body($ctx), $headers);
+    wp_safe_redirect(admin_url('admin.php?page=fudosan-satei&testmail=' . ($ok ? '1' : '0') . '&to=' . rawurlencode($to)));
+    exit;
 }
 
 /* =========================================================================
