@@ -2,7 +2,7 @@
 /**
  * Plugin Name: かんたん不動産AI査定
  * Description: 匿名の不動産価格査定フォーム。国交省「不動産情報ライブラリ」の実成約事例から参考価格レンジを算出し、結果をメール送信＋リード保存。ショートコード [fudosan_satei] をページに貼るだけ。
- * Version: 1.12.0
+ * Version: 1.13.0
  * Author: (運営者)
  * License: GPLv2 or later
  * Text Domain: fudosan-satei
@@ -14,7 +14,7 @@
 
 if (!defined('ABSPATH')) exit; // 直接アクセス禁止
 
-define('FS_VER', '1.12.0');
+define('FS_VER', '1.13.0');
 define('FS_OPT', 'fudosan_satei_options');
 define('FS_ENDPOINT', 'https://www.reinfolib.mlit.go.jp/ex-api/external/XIT001');
 
@@ -169,6 +169,22 @@ add_action('admin_notices', function () {
        . '<a href="' . esc_url(admin_url('admin.php?page=fudosan-satei')) . '">設定画面</a>で国土交通省のAPIキーをご登録ください。</p></div>';
 });
 
+/* 公開前チェック。お客様に見える信頼性の材料が抜けたまま公開されるのを防ぐ */
+add_action('admin_notices', function () {
+    if (!current_user_can('manage_options')) return;
+    $miss = array();
+    if (fs_opt('operator_name', '') === '')  $miss[] = '運営者名（会社名）';
+    if (fs_opt('license_no', '') === '')     $miss[] = '宅地建物取引業の免許番号';
+    if (fs_opt('operator_contact', '') === '') $miss[] = '問い合わせ先';
+    if (fs_opt('privacy_url', '') === '')    $miss[] = 'プライバシーポリシーURL';
+    if (!$miss) return;
+    echo '<div class="notice notice-warning"><p><strong>【匿名不動産AI査定】公開前に未設定の項目があります：'
+       . esc_html(implode(' / ', $miss)) . '</strong><br>'
+       . 'これらはフォーム上でお客様に表示され、「どこの会社に自宅の情報を渡すのか」を判断する材料になります。'
+       . '未設定のままだと信頼性が下がり、個人情報の利用目的の説明としても不十分です。'
+       . '<a href="' . esc_url(admin_url('admin.php?page=fudosan-satei')) . '">設定画面</a>からご記入ください。</p></div>';
+});
+
 add_action('admin_menu', function () {
     // 専用のトップレベルメニュー（設定 と 査定結果・顧客情報 をまとめる）
     add_menu_page('匿名不動産AI査定', '匿名不動産AI査定', 'manage_options', 'fudosan-satei', 'fs_settings_page', 'dashicons-building', 58);
@@ -191,6 +207,8 @@ function fs_sanitize_options($in) {
         'site_name'        => sanitize_text_field($in['site_name'] ?? 'かんたん不動産AI査定'),
         'operator_name'    => sanitize_text_field($in['operator_name'] ?? ''),
         'operator_contact' => sanitize_text_field($in['operator_contact'] ?? ''),
+        'operator_address' => sanitize_text_field($in['operator_address'] ?? ''),
+        'license_no'       => sanitize_text_field($in['license_no'] ?? ''),
         'from_email'       => sanitize_email($in['from_email'] ?? get_option('admin_email')),
         'notify_email'     => sanitize_email($in['notify_email'] ?? ''),
         'notify_on'        => !empty($in['notify_on']) ? '1' : '',
@@ -350,8 +368,12 @@ function fs_settings_page() {
                     <label><input type="checkbox" name="<?php echo FS_OPT; ?>[use_mock]" value="1" <?php checked(fs_opt('use_mock'), '1'); ?>> テスト用のダミー事例を使う（キーがあっても優先）</label>
                 </td></tr>
                 <tr><th>サイト名</th><td><input type="text" name="<?php echo FS_OPT; ?>[site_name]" value="<?php echo esc_attr(fs_opt('site_name', 'かんたん不動産AI査定')); ?>" size="40"></td></tr>
-                <tr><th>運営者名</th><td><input type="text" name="<?php echo FS_OPT; ?>[operator_name]" value="<?php echo esc_attr(fs_opt('operator_name')); ?>" size="40"></td></tr>
-                <tr><th>問い合わせ先</th><td><input type="text" name="<?php echo FS_OPT; ?>[operator_contact]" value="<?php echo esc_attr(fs_opt('operator_contact')); ?>" size="40"></td></tr>
+                <tr><th>運営者名（会社名）</th><td><input type="text" name="<?php echo FS_OPT; ?>[operator_name]" value="<?php echo esc_attr(fs_opt('operator_name')); ?>" size="40" placeholder="例：ミカタ株式会社">
+                    <p class="description">フォームとメールに表示されます。<strong>お客様が「どこの会社に情報を渡すのか」を判断する材料</strong>なので、必ずご記入ください。</p></td></tr>
+                <tr><th>宅地建物取引業<br>免許番号</th><td><input type="text" name="<?php echo FS_OPT; ?>[license_no]" value="<?php echo esc_attr(fs_opt('license_no')); ?>" size="40" placeholder="例：岡山県知事免許（1）第○○○○号">
+                    <p class="description">フォームに表示されます。不動産の査定を受け付ける以上、<strong>これが無いとお客様から見て信頼性が大きく下がります</strong>。</p></td></tr>
+                <tr><th>所在地</th><td><input type="text" name="<?php echo FS_OPT; ?>[operator_address]" value="<?php echo esc_attr(fs_opt('operator_address')); ?>" size="50" placeholder="例：岡山県岡山市北区○○1-2-3"></td></tr>
+                <tr><th>問い合わせ先</th><td><input type="text" name="<?php echo FS_OPT; ?>[operator_contact]" value="<?php echo esc_attr(fs_opt('operator_contact')); ?>" size="40" placeholder="例：086-000-0000 / info@example.com"></td></tr>
                 <tr><th>送信元メール</th><td><input type="email" name="<?php echo FS_OPT; ?>[from_email]" value="<?php echo esc_attr(fs_opt('from_email', get_option('admin_email'))); ?>" size="40">
                     <p class="description">お客様への査定結果メールの差出人。到達率のため WP Mail SMTP 等で SPF/DKIM を設定推奨。</p></td></tr>
                 <tr><th>通知先メール（担当者）</th><td><input type="email" name="<?php echo FS_OPT; ?>[notify_email]" value="<?php echo esc_attr(fs_opt('notify_email')); ?>" size="40">
@@ -1354,6 +1376,10 @@ function fs_shortcode($atts = array()) {
     .fs-testmode{background:#fdecea;border:2px solid #c0392b;border-radius:10px;padding:13px 15px;font-size:15px;color:#c0392b;font-weight:700;margin-bottom:18px}
     /* ハニーポット：display:none だと一部のボットに読まれるため画面外へ逃がす */
     .fs-hp{position:absolute!important;left:-9999px!important;top:auto;width:1px;height:1px;overflow:hidden}
+    .fs-privacy-note{background:#f6f8fa;border:1px solid var(--fs-line);border-radius:9px;padding:13px 15px;font-size:14px;color:#4b5563;line-height:1.75;margin-top:16px}
+    .fs-operator{margin-top:18px;padding-top:16px;border-top:1px solid var(--fs-line);font-size:14px;color:#4b5563;line-height:1.9}
+    .fs-operator-t{font-weight:700;color:var(--fs-ink);margin-bottom:4px;font-size:15px}
+    .fs-operator span{display:inline-block;min-width:6.5em;color:var(--fs-muted)}
     .fs-err{background:#fdecea;border:1px solid #f5c6cb;color:#c0392b;padding:10px 12px;border-radius:9px;margin-bottom:10px;font-size:16px}
     .fs-price{font-size:34px;font-weight:800;color:var(--fs-brand);text-align:center;margin:8px 0}
     .fs-mid{text-align:center;color:var(--fs-muted);font-size:16px}
@@ -1552,6 +1578,14 @@ function fs_shortcode($atts = array()) {
       <label>結果をお届けするメールアドレス<span class="fs-req">必須</span></label>
       <input type="email" name="email" placeholder="you@example.com" required>
 
+      <?php /* 個人情報の利用目的の明示（個情法21条）。同意を求める直前に必ず出す。
+               プライバシーポリシーURLが未設定でも、最低限ここで目的が伝わるようにしておく */ ?>
+      <div class="fs-privacy-note">
+        <strong>個人情報の取り扱いについて</strong><br>
+        ご入力いただいた内容は、<?php echo esc_html(fs_opt('operator_name', '当社')); ?>が<strong>査定結果のご連絡と、それに関するご案内</strong>のために利用します。
+        ご本人の同意なく第三者に提供することはありません。削除をご希望の場合は下記の連絡先までお申し付けください。
+      </div>
+
       <div class="fs-check">
         <input type="checkbox" name="agree" id="fs-agree" value="1" required>
         <label for="fs-agree"><?php echo $agree_label; ?></label>
@@ -1574,6 +1608,22 @@ function fs_shortcode($atts = array()) {
 <?php else: ?>
     <div class="fs-disc">
       本サービスの結果はAIによる簡易的な<strong>参考価格（価格査定）</strong>であり、不動産鑑定士による<strong>鑑定評価ではありません</strong>。実際の売却価格を保証するものではありません。
+    </div>
+<?php endif; ?>
+<?php
+    /* 提供元の明示。お客様が「どこの誰に自宅の情報を渡すのか」を判断する材料であり、
+       不動産では免許番号の有無が信頼性を大きく左右する。設定済みの項目だけを出す。 */
+    $op_name = fs_opt('operator_name', ''); $op_lic = fs_opt('license_no', '');
+    $op_addr = fs_opt('operator_address', ''); $op_tel = fs_opt('operator_contact', '');
+    if ($op_name || $op_lic || $op_addr || $op_tel):
+?>
+    <div class="fs-operator">
+      <div class="fs-operator-t">このサービスの提供元</div>
+<?php if ($op_name): ?>      <div><span>運営</span><?php echo esc_html($op_name); ?></div>
+<?php endif; if ($op_lic): ?>      <div><span>免許番号</span><?php echo esc_html($op_lic); ?></div>
+<?php endif; if ($op_addr): ?>      <div><span>所在地</span><?php echo esc_html($op_addr); ?></div>
+<?php endif; if ($op_tel): ?>      <div><span>お問い合わせ</span><?php echo esc_html($op_tel); ?></div>
+<?php endif; ?>
     </div>
 <?php endif; ?>
   </div>
