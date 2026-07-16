@@ -1,6 +1,6 @@
 {
   "name": "かんたん不動産AI査定",
-  "version": "1.9.0",
+  "version": "1.9.1",
   "download_url": "https://raw.githubusercontent.com/yoshimucom-gif/fudosan-satei-plugin/main/fudosan-satei.zip",
   "requires": "5.8",
   "tested": "6.7",
@@ -8,6 +8,6 @@
   "author": "ミカタ株式会社",
   "homepage": "https://github.com/yoshimucom-gif/fudosan-satei-plugin",
   "sections": {
-    "changelog": "1.9.0\n・ティザーから遷移した際、最初の未入力欄まで自動スクロール ・「続きはこちらから／あと◯項目で完了です」バナーを表示(残り件数はリアルタイム更新、全部埋まると消える) ・直アクセス時は動作しない"
+    "changelog": "1.9.1\n・査定の説明文を修正（重要）。面積・築年・地区で絞り込めなかった場合に、黙って全事例で算出したうえ「条件の近い事例」と表示していたのを是正。絞り込めなかった条件と精度が低い旨を明示するようにしました\n・運営者情報が未設定のとき、メール末尾に「お問い合わせ:」というラベルだけが残る不具合を修正"
   }
 }

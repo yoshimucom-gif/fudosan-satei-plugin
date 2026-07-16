@@ -2,7 +2,7 @@
 /**
  * Plugin Name: かんたん不動産AI査定
  * Description: 匿名の不動産価格査定フォーム。国交省「不動産情報ライブラリ」の実成約事例から参考価格レンジを算出し、結果をメール送信＋リード保存。ショートコード [fudosan_satei] をページに貼るだけ。
- * Version: 1.9.0
+ * Version: 1.9.1
  * Author: (運営者)
  * License: GPLv2 or later
  * Text Domain: fudosan-satei
@@ -14,7 +14,7 @@
 
 if (!defined('ABSPATH')) exit; // 直接アクセス禁止
 
-define('FS_VER', '1.9.0');
+define('FS_VER', '1.9.1');
 define('FS_OPT', 'fudosan_satei_options');
 define('FS_ENDPOINT', 'https://www.reinfolib.mlit.go.jp/ex-api/external/XIT001');
 
@@ -569,7 +569,8 @@ function fs_estimate($records, $ptype, $area, $year, $district = '') {
         return ($r['Type'] ?? '') === $type;
     }));
 
-    $filters = array();
+    $filters  = array();
+    $warnings = array();   // 絞り込めなかった条件は必ず利用者に伝える（黙って全件にフォールバックしない）
 
     // ⓪ 地区（町名）フィルタ: 指定があり十分な件数があれば同じ地区に絞る（最も効く）
     if ($district !== '') {
@@ -579,11 +580,14 @@ function fs_estimate($records, $ptype, $area, $year, $district = '') {
         if (count($dpool) >= 5) {
             $same = $dpool;
             $filters[] = sprintf('地区「%s」の事例', $district);
+        } else {
+            $warnings[] = sprintf('地区「%s」の事例が5件未満のため、市区町村全体の事例で算出しています', $district);
         }
     }
 
     // ① 面積帯フィルタ（対象±30%→±50%、件数を確保できる範囲で）
     $pool = $same;
+    $area_matched = false;
     foreach (array(0.3, 0.5) as $frac) {
         $lo = $area * (1 - $frac); $hi = $area * (1 + $frac);
         $band = array_values(array_filter($same, function ($r) use ($lo, $hi) {
@@ -593,12 +597,17 @@ function fs_estimate($records, $ptype, $area, $year, $district = '') {
         if (count($band) >= 5) {
             $pool = $band;
             $filters[] = sprintf('面積が近い事例（%d〜%d㎡）', (int)$lo, (int)$hi);
+            $area_matched = true;
             break;
         }
+    }
+    if (!$area_matched) {
+        $warnings[] = sprintf('ご入力の面積（%s㎡）に近い事例が5件未満のため、面積を問わない事例で算出しています', rtrim(rtrim(number_format($area, 2, '.', ''), '0'), '.'));
     }
 
     // ② 築年フィルタ（マンション・戸建のみ、±10→±20）
     if ($year && in_array($ptype, array('mansion', 'house'), true)) {
+        $year_matched = false;
         foreach (array(10, 20) as $span) {
             $near = array_values(array_filter($pool, function ($r) use ($year, $span) {
                 $y = fs_wareki_to_year($r['BuildingYear'] ?? '');
@@ -607,8 +616,12 @@ function fs_estimate($records, $ptype, $area, $year, $district = '') {
             if (count($near) >= 5) {
                 $pool = $near;
                 $filters[] = sprintf('築年が対象（%d年）±%d年の事例', $year, $span);
+                $year_matched = true;
                 break;
             }
+        }
+        if (!$year_matched) {
+            $warnings[] = sprintf('ご入力の築年（%d年）に近い事例が5件未満のため、築年を問わない事例で算出しています', $year);
         }
     }
 
@@ -628,14 +641,17 @@ function fs_estimate($records, $ptype, $area, $year, $district = '') {
     $med = fs_percentile($units, 0.5);
     $p75 = fs_percentile($units, 0.75);
 
-    $reason = sprintf('周辺の%s成約事例のうち、条件の近い %d件の㎡単価をもとに、四分位（25%%〜75%%）でレンジを算出しました。採用した㎡単価の中央値は約 %s 円/㎡です。',
-        $GLOBALS['FS_PTYPE_LABEL'][$ptype], count($units), number_format((int)$med));
-    if ($filters) $reason .= '（絞り込み: ' . implode(' ／ ', $filters) . '）';
+    // 絞り込みが1つも効いていないのに「条件の近い」と書くと事実と異なるため、文言を分ける
+    $reason = sprintf('周辺の%s成約事例のうち%s %d件の㎡単価をもとに、四分位（25%%〜75%%）でレンジを算出しました。採用した㎡単価の中央値は約 %s 円/㎡です。',
+        $GLOBALS['FS_PTYPE_LABEL'][$ptype], ($filters ? '、条件の近い' : ''), count($units), number_format((int)$med));
+    if ($filters)  $reason .= '（絞り込み: ' . implode(' ／ ', $filters) . '）';
+    if ($warnings) $reason .= ' ※' . implode('。※', $warnings) . '。条件の近い事例が少ないため、この結果は精度が低くなります。個別査定をご利用ください。';
 
     return array(
         'ok' => true,
         'low' => (int)($p25 * $area), 'mid' => (int)($med * $area), 'high' => (int)($p75 * $area),
         'unit_mid' => (int)$med, 'sample_size' => count($units), 'reason' => $reason,
+        'low_confidence' => !empty($warnings),
     );
 }
 
@@ -776,7 +792,10 @@ function fs_mail_body($ctx) {
         '{operator_name}'    => fs_opt('operator_name', ''),
         '{operator_contact}' => fs_opt('operator_contact', ''),
     );
-    return strtr($tmpl, $repl);
+    // 未設定の項目で「お問い合わせ: 」のようにラベルだけが残らないよう、その行ごと落とす
+    if (trim($repl['{operator_contact}']) === '') $tmpl = preg_replace('/^.*\{operator_contact\}.*\R?/m', '', $tmpl);
+    if (trim($repl['{operator_name}'])    === '') $tmpl = preg_replace('/^\h*\{operator_name\}\h*\R?/m', '', $tmpl);
+    return rtrim(strtr($tmpl, $repl)) . "\n";
 }
 
 /* 件名テンプレ */
