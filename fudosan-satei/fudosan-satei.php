@@ -2,7 +2,7 @@
 /**
  * Plugin Name: かんたん不動産AI査定
  * Description: 匿名の不動産価格査定フォーム。国交省「不動産情報ライブラリ」の実成約事例から参考価格レンジを算出し、結果をメール送信＋リード保存。ショートコード [fudosan_satei] をページに貼るだけ。
- * Version: 1.11.0
+ * Version: 1.12.0
  * Author: (運営者)
  * License: GPLv2 or later
  * Text Domain: fudosan-satei
@@ -14,7 +14,7 @@
 
 if (!defined('ABSPATH')) exit; // 直接アクセス禁止
 
-define('FS_VER', '1.11.0');
+define('FS_VER', '1.12.0');
 define('FS_OPT', 'fudosan_satei_options');
 define('FS_ENDPOINT', 'https://www.reinfolib.mlit.go.jp/ex-api/external/XIT001');
 
@@ -104,6 +104,60 @@ function fs_maybe_upgrade() {
 function fs_opt($key, $default = '') {
     $o = get_option(FS_OPT, array());
     return isset($o[$key]) && $o[$key] !== '' ? $o[$key] : $default;
+}
+
+/* =========================================================================
+ * 濫用対策（メール爆撃の踏み台にされると送信ドメインのレピュテーションが死ぬ）
+ * ※ nonce は未ログインだと全訪問者で同一値・最大24時間有効のため、ボット対策にならない。
+ * ======================================================================= */
+
+/**
+ * 送信元IP。CDN/リバースプロキシ配下では REMOTE_ADDR がプロキシのIPになり、
+ * 全員が同一IP扱い＝正規の利用者まで一律ブロックしてしまうため、標準的なヘッダを優先する。
+ * ヘッダは偽装可能だが、本命の防御は「メールアドレス単位の制限」なので許容する
+ * （攻撃者は宛先を変えられない＝爆撃したい相手のアドレスは固定されるため）。
+ */
+function fs_client_ip() {
+    foreach (array('HTTP_CF_CONNECTING_IP', 'HTTP_X_REAL_IP', 'HTTP_X_FORWARDED_FOR') as $h) {
+        if (!empty($_SERVER[$h])) {
+            $parts = explode(',', $_SERVER[$h]);
+            $ip = trim($parts[0]);
+            if (filter_var($ip, FILTER_VALIDATE_IP)) return $ip;
+        }
+    }
+    return isset($_SERVER['REMOTE_ADDR']) ? $_SERVER['REMOTE_ADDR'] : '0.0.0.0';
+}
+
+/* $id 単位で $limit 回/$window 秒 を超えていないか。超えたら false（超過分は数えず即拒否） */
+function fs_rate_ok($bucket, $id, $limit, $window) {
+    if ($id === '') return true;
+    $k = 'fs_rl_' . $bucket . '_' . md5(strtolower($id));
+    $n = (int) get_transient($k);
+    if ($n >= $limit) return false;
+    set_transient($k, $n + 1, $window);
+    return true;
+}
+
+/* 上限値はフィルタで変更可能にしておく */
+function fs_rl_limits() {
+    return array(
+        'ip_max'       => (int) apply_filters('fs_rl_ip_max', 5),                 // 同一IP: 1時間に5件
+        'ip_window'    => (int) apply_filters('fs_rl_ip_window', HOUR_IN_SECONDS),
+        'email_max'    => (int) apply_filters('fs_rl_email_max', 3),              // 同一メール: 24時間に3件
+        'email_window' => (int) apply_filters('fs_rl_email_window', DAY_IN_SECONDS),
+    );
+}
+
+/**
+ * ボット判定。ハニーポット（人には見えない欄）と、表示から送信までの経過時間で弾く。
+ * このフォームはJSでfetch送信するためJSは必ず動く＝fs_elapsed は必ず入る。
+ * 問題があれば errors の配列を返す。
+ */
+function fs_bot_errors() {
+    if (!empty($_POST['fs_website'])) return array('送信を受け付けられませんでした。');       // 人間は触れない欄
+    $elapsed = isset($_POST['fs_elapsed']) ? intval($_POST['fs_elapsed']) : 0;
+    if ($elapsed < 3000) return array('入力が早すぎます。もう一度お試しください。');           // 3秒未満＝自動送信
+    return array();
 }
 
 /* APIキー未設定＝自動査定が動いていない。管理者が気づけないと機会損失になるので必ず知らせる */
@@ -1017,6 +1071,16 @@ add_action('wp_ajax_nopriv_fudosan_satei', 'fs_ajax');
 function fs_ajax() {
     check_ajax_referer('fudosan_satei', 'nonce');
 
+    // ボット・自動送信を先に弾く（DB・外部API・メールに一切触らせない）
+    $bot = fs_bot_errors();
+    if ($bot) wp_send_json(array('ok' => false, 'errors' => $bot));
+
+    $lim = fs_rl_limits();
+    if (!fs_rate_ok('ip', fs_client_ip(), $lim['ip_max'], $lim['ip_window'])) {
+        wp_send_json(array('ok' => false, 'errors' => array(
+            '送信が集中しています。しばらく時間をおいてからお試しください。')));
+    }
+
     $ptype = sanitize_text_field($_POST['ptype'] ?? '');
     $pref  = sanitize_text_field($_POST['pref_code'] ?? '');
     $city  = sanitize_text_field($_POST['city_code'] ?? '');
@@ -1048,6 +1112,13 @@ function fs_ajax() {
         }
     }
     if ($errors) wp_send_json(array('ok' => false, 'errors' => $errors));
+
+    // ★本命の防御：同一アドレス宛の連続送信を止める。これが無いと、任意の第三者のアドレスを
+    //   入れて連打されるだけで、自社ドメインからのメール爆撃の踏み台になる。
+    if (!fs_rate_ok('email', $email, $lim['email_max'], $lim['email_window'])) {
+        wp_send_json(array('ok' => false, 'errors' => array(
+            'このメールアドレスでのお申し込みが続いています。24時間ほどおいてからお試しください。')));
+    }
 
     // ★APIキーが無いときに架空データで価格を出してはいけない。価格を出さず個別査定へ誘導する
     //   （リード保存と担当者通知は下でそのまま行う＝営業機会は失わない）
@@ -1281,6 +1352,8 @@ function fs_shortcode($atts = array()) {
     .fs-wrap button:disabled{opacity:.6;cursor:wait;filter:none}
     .fs-disc{background:#fff8e6;border:1px solid #f0e0a8;border-radius:10px;padding:15px 17px;font-size:14px;color:#6b5a12;margin-top:18px}
     .fs-testmode{background:#fdecea;border:2px solid #c0392b;border-radius:10px;padding:13px 15px;font-size:15px;color:#c0392b;font-weight:700;margin-bottom:18px}
+    /* ハニーポット：display:none だと一部のボットに読まれるため画面外へ逃がす */
+    .fs-hp{position:absolute!important;left:-9999px!important;top:auto;width:1px;height:1px;overflow:hidden}
     .fs-err{background:#fdecea;border:1px solid #f5c6cb;color:#c0392b;padding:10px 12px;border-radius:9px;margin-bottom:10px;font-size:16px}
     .fs-price{font-size:34px;font-weight:800;color:var(--fs-brand);text-align:center;margin:8px 0}
     .fs-mid{text-align:center;color:var(--fs-muted);font-size:16px}
@@ -1391,6 +1464,11 @@ function fs_shortcode($atts = array()) {
       <div class="fs-coverage"></div>
 <?php else: ?>
     <form class="fs-form" id="fs-form">
+      <?php /* ボット対策。人には見えず、自動入力ツールだけが埋める欄 */ ?>
+      <div class="fs-hp" aria-hidden="true">
+        <label for="fs-website">ウェブサイト（入力しないでください）</label>
+        <input type="text" name="fs_website" id="fs-website" tabindex="-1" autocomplete="off">
+      </div>
 <?php if ($show_purpose): ?>
       <div class="fs-section">ご利用目的</div>
       <label>どのようなご事情ですか<span class="fs-opt">任意</span></label>
@@ -1508,6 +1586,7 @@ function fs_shortcode($atts = array()) {
   var CITIES = <?php echo $cities_json; ?>;
   var AJAX = <?php echo wp_json_encode($ajax); ?>;
   var NONCE = <?php echo wp_json_encode($nonce); ?>;
+  var LOADED_AT = Date.now();   // ページキャッシュがあってもJS側で計測すれば正しく効く
   var WRAP_ID = <?php echo wp_json_encode($uid); ?>;
   var TEASER = <?php echo $teaser ? 'true' : 'false'; ?>;
   var TARGET = <?php echo wp_json_encode($target); ?>;
@@ -1714,6 +1793,7 @@ function fs_shortcode($atts = array()) {
     var fd = new FormData(form);
     fd.append('action', 'fudosan_satei');
     fd.append('nonce', NONCE);
+    fd.append('fs_elapsed', String(Date.now() - LOADED_AT));   // 表示から送信までの経過ms（ボット判定）
 
     fetch(AJAX, { method:'POST', body: fd, credentials:'same-origin' })
       .then(function(r){ return r.json(); })
