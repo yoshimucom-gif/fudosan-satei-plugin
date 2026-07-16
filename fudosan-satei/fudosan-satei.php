@@ -2,7 +2,7 @@
 /**
  * Plugin Name: かんたん不動産AI査定
  * Description: 匿名の不動産価格査定フォーム。国交省「不動産情報ライブラリ」の実成約事例から参考価格レンジを算出し、結果をメール送信＋リード保存。ショートコード [fudosan_satei] をページに貼るだけ。
- * Version: 1.10.0
+ * Version: 1.11.0
  * Author: (運営者)
  * License: GPLv2 or later
  * Text Domain: fudosan-satei
@@ -14,7 +14,7 @@
 
 if (!defined('ABSPATH')) exit; // 直接アクセス禁止
 
-define('FS_VER', '1.10.0');
+define('FS_VER', '1.11.0');
 define('FS_OPT', 'fudosan_satei_options');
 define('FS_ENDPOINT', 'https://www.reinfolib.mlit.go.jp/ex-api/external/XIT001');
 
@@ -105,6 +105,15 @@ function fs_opt($key, $default = '') {
     $o = get_option(FS_OPT, array());
     return isset($o[$key]) && $o[$key] !== '' ? $o[$key] : $default;
 }
+
+/* APIキー未設定＝自動査定が動いていない。管理者が気づけないと機会損失になるので必ず知らせる */
+add_action('admin_notices', function () {
+    if (!current_user_can('manage_options')) return;
+    if (fs_opt('api_key') !== '' || fs_use_mock()) return;
+    echo '<div class="notice notice-error"><p><strong>【匿名不動産AI査定】APIキーが未設定のため、自動査定を停止しています。</strong><br>'
+       . 'お客様には価格を表示せず「担当者よりご連絡します」とご案内し、リードの保存と担当者への通知は継続しています。'
+       . '<a href="' . esc_url(admin_url('admin.php?page=fudosan-satei')) . '">設定画面</a>で国土交通省のAPIキーをご登録ください。</p></div>';
+});
 
 add_action('admin_menu', function () {
     // 専用のトップレベルメニュー（設定 と 査定結果・顧客情報 をまとめる）
@@ -201,6 +210,17 @@ function fs_hex_to_rgb($hex) {
 }
 
 /* 表示項目の判定（未保存＝デフォルト表示、保存済みは値そのもの。空='非表示'を区別） */
+/**
+ * リード通知のON/OFF。fs_opt は「空文字＝未設定＝デフォルト」と解釈するため、
+ * チェックを外した状態('')を fs_opt('notify_on','1') で読むと '1' が返り、OFFにできない。
+ * よって fs_show と同じく array_key_exists で判定する。
+ */
+function fs_notify_on() {
+    $o = get_option(FS_OPT, array());
+    if (!is_array($o) || !array_key_exists('notify_on', $o)) return true;   // 未設定=通知する
+    return $o['notify_on'] === '1';
+}
+
 function fs_show($key) {
     $o = get_option(FS_OPT, array());
     if (!is_array($o) || !array_key_exists('show_' . $key, $o)) return true; // 未設定=表示
@@ -472,6 +492,17 @@ function fs_leads_page() {
 }
 
 /* CSVエクスポート（Excel向けShift_JIS） */
+/**
+ * CSVインジェクション対策。= + - @ 等で始まるセルは Excel が数式として実行してしまうため、
+ * 先頭に ' を付けて無害な文字列にする（お客様の自由入力がそのままCSVに入るため必須）。
+ * 数値（-5 等）はそのまま通す。
+ */
+function fs_csv_safe($s) {
+    $s = (string)$s;
+    if ($s === '' || is_numeric($s)) return $s;
+    return (strpos("=+-@\t\r", $s[0]) !== false) ? "'" . $s : $s;
+}
+
 add_action('admin_post_fs_export_leads', 'fs_export_leads');
 function fs_export_leads() {
     if (!current_user_can('manage_options')) wp_die('権限がありません');
@@ -488,7 +519,7 @@ function fs_export_leads() {
     fputcsv($out, array_map($sjis, $head));
     foreach ($rows as $r) {
         $line = array();
-        foreach ($cols as $c) $line[] = $sjis(isset($r[$c]) ? $r[$c] : '');
+        foreach ($cols as $c) $line[] = $sjis(fs_csv_safe(isset($r[$c]) ? $r[$c] : ''));
         fputcsv($out, $line);
     }
     fclose($out);
@@ -576,10 +607,13 @@ function fs_to_int($s) {
 define('FS_AREA_SENTINEL', 9999);
 
 function fs_unit_price($rec) {
-    $area = fs_to_int($rec['Area'] ?? '');
-    if ($area !== null && $area >= FS_AREA_SENTINEL) return null;   // 面積が打ち切り＝㎡単価が信用できない
+    // UnitPrice は面積に依存しない実測値なので、打ち切りガードより先に採用する
+    // （土地は UnitPrice が常に入っており、9999㎡以上の事例でも単価自体は正しい）
     $up = fs_to_int($rec['UnitPrice'] ?? '');
     if ($up) return floatval($up);
+    // TradePrice/Area で代替する場合のみ、面積の打ち切りが単価を狂わせるので除外する
+    $area = fs_to_int($rec['Area'] ?? '');
+    if ($area !== null && $area >= FS_AREA_SENTINEL) return null;
     $price = fs_to_int($rec['TradePrice'] ?? '');
     if ($price && $area && $area > 0) return $price / $area;
     return null;
@@ -692,8 +726,19 @@ function fs_yen_man($v) { return number_format($v / 10000) . '万円'; }
 /* =========================================================================
  * 5. API取得（reinfolib）＋モックフォールバック
  * ======================================================================= */
+/**
+ * モックは「強制モック」を明示ONにしたときだけ。
+ * ★APIキー未設定でモックに落としてはいけない。落とすと、実在しない架空の取引事例をもとにした
+ *   価格を、お客様に「周辺の成約事例」として提示・メールしてしまう（宅建業法47条・景表法5条1号）。
+ *   キーが無いときは価格を出さず、個別査定へ誘導する（fs_api_ready を参照）。
+ */
 function fs_use_mock() {
-    return fs_opt('use_mock') === '1' || fs_opt('api_key') === '';
+    return fs_opt('use_mock') === '1';
+}
+
+/* 査定の根拠データを出せる状態か（APIキーがある or 明示的なテストモード） */
+function fs_api_ready() {
+    return fs_opt('api_key') !== '' || fs_use_mock();
 }
 
 function fs_fetch_records($city, $year, $quarter) {
@@ -735,11 +780,23 @@ function fs_districts($city) {
     return $out;
 }
 
+/* 実在する市区町村コードのみ許可（transientキー汚染と外部APIの濫用を防ぐ） */
+function fs_city_valid($code) {
+    if ($code === '' || !ctype_digit($code)) return false;
+    foreach (fs_cities() as $list) {
+        foreach ($list as $c) if ((string)$c[0] === (string)$code) return true;
+    }
+    return false;
+}
+
 add_action('wp_ajax_fudosan_satei_districts', 'fs_ajax_districts');
 add_action('wp_ajax_nopriv_fudosan_satei_districts', 'fs_ajax_districts');
 function fs_ajax_districts() {
+    // 未ログインでも叩ける公開エンドポイント。nonceと実在コード照合が無いと、
+    // 全国約1,900市区町村を総当たりされて外部APIのクォータを枯渇させられる（1回で最大8コール）。
+    check_ajax_referer('fudosan_satei', 'nonce');
     $city = sanitize_text_field($_GET['city'] ?? '');
-    if (!$city) wp_send_json(array('districts' => array(), 'counts' => null));
+    if (!fs_city_valid($city)) wp_send_json(array('districts' => array(), 'counts' => null));
 
     $recs = fs_fetch_recent($city, intval(date('Y')) - 1, 8);
 
@@ -827,7 +884,59 @@ function fs_mail_body($ctx) {
     // 未設定の項目で「お問い合わせ: 」のようにラベルだけが残らないよう、その行ごと落とす
     if (trim($repl['{operator_contact}']) === '') $tmpl = preg_replace('/^.*\{operator_contact\}.*\R?/m', '', $tmpl);
     if (trim($repl['{operator_name}'])    === '') $tmpl = preg_replace('/^\h*\{operator_name\}\h*\R?/m', '', $tmpl);
-    return rtrim(strtr($tmpl, $repl)) . "\n";
+    return fs_with_disclaimer(rtrim(strtr($tmpl, $repl)));
+}
+
+/**
+ * 免責文は「鑑定評価ではない」ことを示す法的に必須の文面。
+ * 本文テンプレートは管理画面で自由に編集できるため、テンプレート内に免責を置くと
+ * 編集した瞬間に消えてしまう。よって★テンプレートの外で必ず連結する。
+ * （既に免責を含むテンプレートには二重に付けない）
+ */
+function fs_legal_disclaimer() {
+    return "───────────────────────────────\n"
+        . "【重要なご注意】\n"
+        . "・本結果は国土交通省の不動産取引データを統計処理した簡易的な\n"
+        . "  『参考価格（価格査定）』であり、不動産鑑定士による『鑑定評価』ではありません。\n"
+        . "・過去の周辺取引事例からの機械的な推定値で、実際の売却価格・\n"
+        . "  成約価格を保証するものではありません。\n"
+        . "・正確な価格は、現地確認を含む個別査定が必要です。\n"
+        . "───────────────────────────────";
+}
+
+function fs_with_disclaimer($body) {
+    // mbstring が無いサーバーでも動くよう strpos を使う（UTF-8同士の検索は strpos で正しく判定できる）
+    if (strpos($body, '鑑定評価') === false) $body .= "\n\n" . fs_legal_disclaimer();
+    return $body . "\n";
+}
+
+/* 事例不足・自動査定停止時にお客様へ送る受付メール（価格は出さない。免責は自動付加） */
+function fs_insufficient_mail_body($ctx, $reason) {
+    $site = fs_opt('site_name', 'AI査定');
+    $loc  = trim($ctx['pref'] . ' ' . $ctx['city'] . ' ' . $ctx['district']);
+    $b = array();
+    $b[] = "【{$site}】お申し込みを受け付けました";
+    $b[] = "";
+    $b[] = "この度はご利用いただきありがとうございます。";
+    $b[] = "以下の内容でお申し込みを受け付けました。";
+    $b[] = "";
+    $b[] = "■ 物件種別 : {$ctx['ptype_label']}";
+    $b[] = "■ 所在地   : {$loc}";
+    $b[] = "■ 面積     : {$ctx['area']} ㎡";
+    if (!empty($ctx['build_year'])) $b[] = "■ 築年     : {$ctx['build_year']}年";
+    if (!empty($ctx['floor_plan'])) $b[] = "■ 間取り   : {$ctx['floor_plan']}";
+    if (!empty($ctx['purpose']))    $b[] = "■ 利用目的 : {$ctx['purpose']}";
+    $b[] = "";
+    $b[] = $reason;
+    $b[] = "";
+    $b[] = "個別査定をご希望の場合は、このメールにご返信ください。担当者よりご連絡いたします。";
+    $op = fs_opt('operator_name', ''); $oc = fs_opt('operator_contact', '');
+    if ($op !== '' || $oc !== '') {
+        $b[] = "";
+        if ($op !== '') $b[] = $op;
+        if ($oc !== '') $b[] = "お問い合わせ: " . $oc;
+    }
+    return fs_with_disclaimer(rtrim(implode("\n", $b)));
 }
 
 /* 管理者通知メールの本文（担当者へ）。事例不足で査定できなかったリードにも対応する */
@@ -940,8 +1049,15 @@ function fs_ajax() {
     }
     if ($errors) wp_send_json(array('ok' => false, 'errors' => $errors));
 
-    $records = fs_fetch_recent($city, intval(date('Y')) - 1, 8);
-    $res = fs_estimate($records, $ptype, $area, $byear, $district);
+    // ★APIキーが無いときに架空データで価格を出してはいけない。価格を出さず個別査定へ誘導する
+    //   （リード保存と担当者通知は下でそのまま行う＝営業機会は失わない）
+    if (fs_api_ready()) {
+        $records = fs_fetch_recent($city, intval(date('Y')) - 1, 8);
+        $res = fs_estimate($records, $ptype, $area, $byear, $district);
+    } else {
+        $res = array('ok' => false, 'sample_size' => 0,
+            'reason' => 'ただいま自動査定を停止しております。ご入力の内容は担当者が確認し、個別にご連絡いたします。');
+    }
 
     $pref_name = fs_prefs()[$pref];
     $city_name = fs_city_name($pref, $city);
@@ -976,7 +1092,7 @@ function fs_ajax() {
 
     // 担当者へのリード通知。事例不足で査定できなかった場合も「リードはリード」なので必ず通知する
     // （早期returnより前に置くこと。後ろに置くと事例不足リードだけ通知が飛ばない）
-    if (fs_opt('notify_on', '1') === '1') {
+    if (fs_notify_on()) {
         $nfrom  = fs_opt('from_email');
         $nsite  = fs_opt('site_name', 'AI査定');
         $notify = fs_opt('notify_email', '') ?: ($nfrom ?: get_option('admin_email'));
@@ -993,7 +1109,19 @@ function fs_ajax() {
     }
 
     if (!$res['ok']) {
-        wp_send_json(array('ok' => false, 'insufficient' => true, 'reason' => $res['reason'], 'email' => $email));
+        // 画面で「メールをお送りしました」と案内する以上、必ず送る（価格は出さず、免責は自動付加）
+        $iheaders = array('Content-Type: text/plain; charset=UTF-8');
+        $ifrom = fs_opt('from_email'); $isite = fs_opt('site_name', 'AI査定');
+        if ($ifrom) $iheaders[] = 'From: ' . $isite . ' <' . $ifrom . '>';
+        $ictx = array(
+            'ptype_label' => $label, 'pref' => $pref_name, 'city' => $city_name, 'district' => $district,
+            'area' => $area, 'build_year' => $byear, 'floor_plan' => $fplan,
+            'station_name' => $sname, 'station_min' => $smin, 'purpose' => $purpose,
+        );
+        $imail_ok = wp_mail($email, '【' . $isite . '】お申し込みを受け付けました',
+            fs_insufficient_mail_body($ictx, $res['reason']), $iheaders);
+        wp_send_json(array('ok' => false, 'insufficient' => true, 'reason' => $res['reason'],
+            'email' => $email, 'mail_ok' => (bool)$imail_ok));
     }
 
     $ctx = array(
@@ -1152,6 +1280,7 @@ function fs_shortcode($atts = array()) {
     .fs-wrap button:hover{filter:brightness(.93)}
     .fs-wrap button:disabled{opacity:.6;cursor:wait;filter:none}
     .fs-disc{background:#fff8e6;border:1px solid #f0e0a8;border-radius:10px;padding:15px 17px;font-size:14px;color:#6b5a12;margin-top:18px}
+    .fs-testmode{background:#fdecea;border:2px solid #c0392b;border-radius:10px;padding:13px 15px;font-size:15px;color:#c0392b;font-weight:700;margin-bottom:18px}
     .fs-err{background:#fdecea;border:1px solid #f5c6cb;color:#c0392b;padding:10px 12px;border-radius:9px;margin-bottom:10px;font-size:16px}
     .fs-price{font-size:34px;font-weight:800;color:var(--fs-brand);text-align:center;margin:8px 0}
     .fs-mid{text-align:center;color:var(--fs-muted);font-size:16px}
@@ -1215,6 +1344,9 @@ function fs_shortcode($atts = array()) {
   </style>
 
   <div class="fs-card fs-form-card" id="fs-form-card">
+<?php if (fs_use_mock()): /* テストモードの価格はダミー。お客様に必ず知らせる（消せない表示） */ ?>
+    <div class="fs-testmode">⚠ テストモードで動作しています。表示される価格は<strong>ダミーデータ</strong>であり、実際の取引事例に基づくものではありません。</div>
+<?php endif; ?>
     <div class="fs-errors" id="fs-errors"></div>
 <?php if ($teaser): ?>
     <div class="fs-teaser-head<?php echo $t_logo ? ' fs-has-logo' : ''; ?>">
@@ -1297,9 +1429,11 @@ function fs_shortcode($atts = array()) {
 <?php if (!$teaser): ?>
       <div class="fs-row">
         <div>
-          <label>面積（㎡）<span class="fs-req">必須</span></label>
+          <label id="fs-area-label">面積（㎡）<span class="fs-req">必須</span></label>
           <input type="number" name="area" step="0.01" min="1" placeholder="例：70" required>
-          <div class="fs-hint">マンション・戸建は専有/延床、土地は敷地面積</div>
+          <?php /* ★戸建は「土地面積」を入力させること。国交省データの宅地(土地と建物)のArea＝土地面積であり、
+                    延床を入力させて円/土地㎡に掛けると系統的に過大評価になる（渋谷区で中央値+63%を実測） */ ?>
+          <div class="fs-hint" id="fs-area-hint">マンションは専有面積、戸建・土地は土地（敷地）面積</div>
         </div>
 <?php if ($show_build_year): ?>
         <div>
@@ -1487,7 +1621,7 @@ function fs_shortcode($atts = array()) {
     }
     if (district) district.innerHTML = '<option value="">読み込み中…</option>';
     if (cov) cov.textContent = 'この地域の取引事例を確認中…';
-    fetch(AJAX + '?action=fudosan_satei_districts&city=' + encodeURIComponent(city.value), { credentials:'same-origin' })
+    fetch(AJAX + '?action=fudosan_satei_districts&nonce=' + encodeURIComponent(NONCE) + '&city=' + encodeURIComponent(city.value), { credentials:'same-origin' })
       .then(function(r){ return r.json(); })
       .then(function(d){
         if (district) {
@@ -1503,7 +1637,21 @@ function fs_shortcode($atts = array()) {
       });
   });
 
-  if (ptypeSel) ptypeSel.addEventListener('change', function(){ renderCoverage(); updateFormState(); });
+  // 面積の意味を種別ごとに明示する（戸建に延床を入れさせると査定が過大になるため）
+  function updateAreaLabel(){
+    var lbl = wrap.querySelector('#fs-area-label'), hint = wrap.querySelector('#fs-area-hint');
+    if (!lbl || !ptypeSel) return;
+    var badge = lbl.querySelector('.fs-req');
+    var t = { mansion: ['専有面積（㎡）', '登記簿またはパンフレットに記載の専有面積をご入力ください'],
+              house:   ['土地面積（㎡）', '建物の延床面積ではなく、土地（敷地）の面積をご入力ください'],
+              land:    ['土地面積（㎡）', '土地（敷地）の面積をご入力ください'] }[ptypeSel.value]
+            || ['面積（㎡）', 'マンションは専有面積、戸建・土地は土地（敷地）面積'];
+    lbl.textContent = t[0];
+    if (badge) lbl.appendChild(badge);
+    if (hint) hint.textContent = t[1];
+  }
+  updateAreaLabel();
+  if (ptypeSel) ptypeSel.addEventListener('change', function(){ updateAreaLabel(); renderCoverage(); updateFormState(); });
 
   updateFormState(); // 初期表示（最初の未入力欄を光らせる）
 
