@@ -2,7 +2,7 @@
 /**
  * Plugin Name: かんたん不動産AI査定
  * Description: 匿名の不動産価格査定フォーム。国交省「不動産情報ライブラリ」の実成約事例から参考価格レンジを算出し、結果をメール送信＋リード保存。ショートコード [fudosan_satei] をページに貼るだけ。
- * Version: 1.9.1
+ * Version: 1.10.0
  * Author: (運営者)
  * License: GPLv2 or later
  * Text Domain: fudosan-satei
@@ -14,7 +14,7 @@
 
 if (!defined('ABSPATH')) exit; // 直接アクセス禁止
 
-define('FS_VER', '1.9.1');
+define('FS_VER', '1.10.0');
 define('FS_OPT', 'fudosan_satei_options');
 define('FS_ENDPOINT', 'https://www.reinfolib.mlit.go.jp/ex-api/external/XIT001');
 
@@ -129,6 +129,8 @@ function fs_sanitize_options($in) {
         'operator_name'    => sanitize_text_field($in['operator_name'] ?? ''),
         'operator_contact' => sanitize_text_field($in['operator_contact'] ?? ''),
         'from_email'       => sanitize_email($in['from_email'] ?? get_option('admin_email')),
+        'notify_email'     => sanitize_email($in['notify_email'] ?? ''),
+        'notify_on'        => !empty($in['notify_on']) ? '1' : '',
         'privacy_url'      => esc_url_raw($in['privacy_url'] ?? ''),
         'terms_url'        => esc_url_raw($in['terms_url'] ?? ''),
         // 表示項目（未送信=チェック外れ=非表示）
@@ -277,7 +279,12 @@ function fs_settings_page() {
                 <tr><th>運営者名</th><td><input type="text" name="<?php echo FS_OPT; ?>[operator_name]" value="<?php echo esc_attr(fs_opt('operator_name')); ?>" size="40"></td></tr>
                 <tr><th>問い合わせ先</th><td><input type="text" name="<?php echo FS_OPT; ?>[operator_contact]" value="<?php echo esc_attr(fs_opt('operator_contact')); ?>" size="40"></td></tr>
                 <tr><th>送信元メール</th><td><input type="email" name="<?php echo FS_OPT; ?>[from_email]" value="<?php echo esc_attr(fs_opt('from_email', get_option('admin_email'))); ?>" size="40">
-                    <p class="description">到達率のため WP Mail SMTP 等で SPF/DKIM を設定推奨。</p></td></tr>
+                    <p class="description">お客様への査定結果メールの差出人。到達率のため WP Mail SMTP 等で SPF/DKIM を設定推奨。</p></td></tr>
+                <tr><th>通知先メール（担当者）</th><td><input type="email" name="<?php echo FS_OPT; ?>[notify_email]" value="<?php echo esc_attr(fs_opt('notify_email')); ?>" size="40">
+                    <p class="description">査定リードが入ったら、このアドレスに通知します。空欄なら送信元メール（無ければ管理者アドレス）に通知します。<br>通知したくない場合は下の「担当者に通知する」のチェックを外してください。</p></td></tr>
+                <tr><th>リード通知</th><td>
+                    <label><input type="checkbox" name="<?php echo FS_OPT; ?>[notify_on]" value="1" <?php checked(fs_opt('notify_on', '1'), '1'); ?>> 査定リードが入ったら担当者に通知する</label>
+                </td></tr>
                 <tr><th>プライバシーポリシーURL</th><td><input type="url" name="<?php echo FS_OPT; ?>[privacy_url]" value="<?php echo esc_attr(fs_opt('privacy_url')); ?>" size="50"></td></tr>
                 <tr><th>利用規約・免責URL</th><td><input type="url" name="<?php echo FS_OPT; ?>[terms_url]" value="<?php echo esc_attr(fs_opt('terms_url')); ?>" size="50"></td></tr>
             </table>
@@ -538,17 +545,42 @@ function fs_wareki_to_year($s) {
     return null;
 }
 
+/**
+ * 種別ごとの妥当な面積レンジ。桁間違い等の明らかな入力ミスだけを弾くための緩い範囲で、
+ * 実在する物件を拒否しないことを優先する（正確さの担保は査定側の絞り込み警告が担当）。
+ * 根拠＝国交省の実取引データ（渋谷区・岡山市北区/2025年全4四半期）の Area 分布:
+ *   中古マンション等   実績 10〜640㎡（岡山は最大145㎡）
+ *   宅地(土地と建物)   実績 30〜1500㎡
+ *   宅地(土地)         実績 30〜4800㎡（9999は打ち切り値のため除外）
+ */
+function fs_area_range($ptype) {
+    switch ($ptype) {
+        case 'mansion': return array(10, 1000);
+        case 'house':   return array(20, 5000);
+        case 'land':    return array(10, 10000);
+    }
+    return array(1, 100000);
+}
+
 function fs_to_int($s) {
     if ($s === null || $s === '') return null;
     if (preg_match('/\d+/', str_replace(',', '', (string)$s), $m)) return intval($m[0]);
     return null;
 }
 
+/**
+ * 国交省データの Area は「9999」が『9999㎡以上』の打ち切り値。
+ * 実面積が不明なまま 9999 で割ると㎡単価が過大になるため、この事例は採用しない。
+ * （実データ確認: 面積は1500〜4800㎡まで100㎡刻みで連続し、その先が飛んで 8888/9999 に集中）
+ */
+define('FS_AREA_SENTINEL', 9999);
+
 function fs_unit_price($rec) {
+    $area = fs_to_int($rec['Area'] ?? '');
+    if ($area !== null && $area >= FS_AREA_SENTINEL) return null;   // 面積が打ち切り＝㎡単価が信用できない
     $up = fs_to_int($rec['UnitPrice'] ?? '');
     if ($up) return floatval($up);
     $price = fs_to_int($rec['TradePrice'] ?? '');
-    $area  = fs_to_int($rec['Area'] ?? '');
     if ($price && $area && $area > 0) return $price / $area;
     return null;
 }
@@ -798,6 +830,48 @@ function fs_mail_body($ctx) {
     return rtrim(strtr($tmpl, $repl)) . "\n";
 }
 
+/* 管理者通知メールの本文（担当者へ）。事例不足で査定できなかったリードにも対応する */
+function fs_admin_notify_body($ctx, $email, $res, $mkt = false) {
+    $loc = trim($ctx['pref'] . ' ' . $ctx['city'] . ' ' . $ctx['district']);
+    $b = array();
+    $b[] = "新しい査定リードが届きました。";
+    $b[] = "";
+    $b[] = "■ お客様メール : {$email}";
+    $b[] = "■ 営業連絡の可否 : " . ($mkt ? '希望あり（オプトイン済み）' : '希望なし ※営業メールは送らないでください');
+    $b[] = "";
+    $b[] = "■ 物件種別 : {$ctx['ptype_label']}";
+    $b[] = "■ 所在地   : {$loc}";
+    $b[] = "■ 面積     : {$ctx['area']} ㎡";
+    if (!empty($ctx['build_year'])) $b[] = "■ 築年     : {$ctx['build_year']}年";
+    if (!empty($ctx['floor_plan'])) $b[] = "■ 間取り   : {$ctx['floor_plan']}";
+    if (!empty($ctx['station_name'])) {
+        $b[] = "■ 最寄駅   : {$ctx['station_name']}" . (!empty($ctx['station_min']) ? " 徒歩{$ctx['station_min']}分" : '');
+    }
+    if (!empty($ctx['purpose'])) $b[] = "■ 利用目的 : {$ctx['purpose']}";
+    $b[] = "";
+    if (!empty($res['ok'])) {
+        $b[] = "─────────────────────";
+        $b[] = "  お客様に提示した参考価格";
+        $b[] = "  " . fs_yen_man($res['low']) . " 〜 " . fs_yen_man($res['high']) . "（中央値 " . fs_yen_man($res['mid']) . "）";
+        $b[] = "  使用事例 {$res['sample_size']}件";
+        $b[] = "─────────────────────";
+        if (!empty($res['low_confidence'])) {
+            $b[] = "";
+            $b[] = "※条件の近い事例が不足しており、精度の低い査定です。フォローの際はご注意ください。";
+        }
+    } else {
+        $b[] = "─────────────────────";
+        $b[] = "  事例不足のため自動査定できませんでした";
+        $b[] = "  （お客様には個別査定をご案内しています）";
+        $b[] = "─────────────────────";
+        $b[] = "";
+        $b[] = "※自動査定が出せていないため、個別対応のチャンスです。";
+    }
+    $b[] = "";
+    $b[] = "管理画面「不動産AI査定 → 査定結果・顧客情報」からも確認できます。";
+    return implode("\n", $b);
+}
+
 /* 件名テンプレ */
 function fs_mail_subject() {
     $s = fs_opt('mail_subject', '');
@@ -854,7 +928,16 @@ function fs_ajax() {
     if (!is_email($email)) $errors[] = 'メールアドレスの形式が正しくありません。';
     if (!isset(fs_prefs()[$pref]) || !$city) $errors[] = '都道府県・市区町村を選択してください。';
     if (!isset($GLOBALS['FS_PTYPE_MAP'][$ptype])) $errors[] = '物件種別を選択してください。';
-    if ($area <= 0 || $area > 100000) $errors[] = '面積（㎡）を正しく入力してください。';
+    if ($area <= 0) {
+        $errors[] = '面積（㎡）を正しく入力してください。';
+    } elseif (isset($GLOBALS['FS_PTYPE_MAP'][$ptype])) {
+        list($amin, $amax) = fs_area_range($ptype);
+        if ($area < $amin || $area > $amax) {   // 桁間違い等を弾く（5㎡のマンション等）
+            $errors[] = sprintf('%sの面積は %s〜%s㎡ の範囲でご入力ください（ご入力: %s㎡）。',
+                $GLOBALS['FS_PTYPE_LABEL'][$ptype], number_format($amin), number_format($amax),
+                rtrim(rtrim(number_format($area, 2, '.', ''), '0'), '.'));
+        }
+    }
     if ($errors) wp_send_json(array('ok' => false, 'errors' => $errors));
 
     $records = fs_fetch_recent($city, intval(date('Y')) - 1, 8);
@@ -890,6 +973,24 @@ function fs_ajax() {
     }
 
     $label = $GLOBALS['FS_PTYPE_LABEL'][$ptype];
+
+    // 担当者へのリード通知。事例不足で査定できなかった場合も「リードはリード」なので必ず通知する
+    // （早期returnより前に置くこと。後ろに置くと事例不足リードだけ通知が飛ばない）
+    if (fs_opt('notify_on', '1') === '1') {
+        $nfrom  = fs_opt('from_email');
+        $nsite  = fs_opt('site_name', 'AI査定');
+        $notify = fs_opt('notify_email', '') ?: ($nfrom ?: get_option('admin_email'));
+        if ($notify) {
+            $nheaders = array('Content-Type: text/plain; charset=UTF-8');
+            if ($nfrom) $nheaders[] = 'From: ' . $nsite . ' <' . $nfrom . '>';
+            $nctx = array(
+                'ptype_label' => $label, 'pref' => $pref_name, 'city' => $city_name, 'district' => $district,
+                'area' => $area, 'build_year' => $byear, 'floor_plan' => $fplan,
+                'station_name' => $sname, 'station_min' => $smin, 'purpose' => $purpose,
+            );
+            wp_mail($notify, '【AI査定】新しい査定リードが届きました', fs_admin_notify_body($nctx, $email, $res, $mkt), $nheaders);
+        }
+    }
 
     if (!$res['ok']) {
         wp_send_json(array('ok' => false, 'insufficient' => true, 'reason' => $res['reason'], 'email' => $email));
