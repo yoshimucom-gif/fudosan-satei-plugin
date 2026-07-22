@@ -2,7 +2,7 @@
 /**
  * Plugin Name: かんたん不動産AI査定
  * Description: 匿名の不動産価格査定フォーム。国交省「不動産情報ライブラリ」の実成約事例から参考価格レンジを算出し、結果をメール送信＋リード保存。ショートコード [fudosan_satei] をページに貼るだけ。
- * Version: 1.14.0
+ * Version: 1.14.1
  * Author: (運営者)
  * License: GPLv2 or later
  * Text Domain: fudosan-satei
@@ -14,7 +14,7 @@
 
 if (!defined('ABSPATH')) exit; // 直接アクセス禁止
 
-define('FS_VER', '1.14.0');
+define('FS_VER', '1.14.1');
 define('FS_OPT', 'fudosan_satei_options');
 define('FS_ENDPOINT', 'https://www.reinfolib.mlit.go.jp/ex-api/external/XIT001');
 
@@ -418,7 +418,14 @@ function fs_settings_page() {
                     <p class="description">
                         空欄にして保存すると初期文面に戻ります。使える差し込みタグ：<br>
                         <code>{site_name}</code> <code>{property_details}</code>（物件情報のまとまり） <code>{price_low}</code> <code>{price_high}</code> <code>{price_mid}</code> <code>{reason}</code> <code>{ptype}</code> <code>{pref}</code> <code>{city}</code> <code>{district}</code> <code>{area}</code> <code>{floor_plan}</code> <code>{build_year}</code> <code>{station}</code> <code>{purpose}</code> <code>{operator_name}</code> <code>{operator_contact}</code>
-                        <br><strong style="color:#b32d2e">※「鑑定評価ではない」旨の免責文は必ず残してください（法的に重要です）。</strong>
+                    </p>
+                    <p class="description" style="background:#f0f6fc;border-left:4px solid #2271b1;padding:10px 12px;margin-top:10px">
+                        <strong>次の2つは、本文を自由に書き換えても自動で付きます（消せません）。</strong><br>
+                        ・<strong>免責文</strong>（「鑑定評価ではない」旨）— 法令上、必ず必要なためです。<br>
+                        ・<strong>戸建て・土地の注意文言</strong> — 現地確認が必要な要素で価格が大きく変わるため、
+                        「目安である」旨と訪問査定のご案内を、価格のすぐ下に自動で表示します（マンションには付きません）。<br>
+                        本文には<strong>ご案内したい内容だけ</strong>をお書きください。
+                        ご自身で同じ趣旨の文面を書かれた場合は、二重にならないよう自動付加を行いません。
                     </p>
                 </td></tr>
                 <tr><th>到達確認</th><td>

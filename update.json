@@ -1,6 +1,6 @@
 {
   "name": "かんたん不動産AI査定",
-  "version": "1.14.0",
+  "version": "1.14.1",
   "download_url": "https://raw.githubusercontent.com/yoshimucom-gif/fudosan-satei-plugin/main/fudosan-satei.zip",
   "requires": "5.8",
   "tested": "6.7",
@@ -8,6 +8,6 @@
   "author": "ミカタ株式会社",
   "homepage": "https://github.com/yoshimucom-gif/fudosan-satei-plugin",
   "sections": {
-    "changelog": "1.14.0\n・戸建て・土地の査定結果に注意文言を表示するようにしました。これらは地形・接道道路の種別・権利関係・高低差・埋設物など現地確認が必要な要素に左右されるため、結果が目安である旨と、訪問査定へのご案内を、査定結果画面と自動返信メールの両方に表示します（マンションには表示されません）\n・この注意文言はメール本文をカスタマイズしても消えないよう、本文の外で自動的に付加されます"
+    "changelog": "1.14.1\n・設定画面「自動返信メール」の説明を修正しました。免責文と、戸建て・土地の注意文言は、本文を自由に書き換えても自動で付く（消えない）仕組みであることを明記しました。同じ趣旨の文面をご自身で書かれた場合は、二重にならないよう自動付加を行いません"
   }
 }
