@@ -2,7 +2,7 @@
 /**
  * Plugin Name: かんたん不動産AI査定
  * Description: 匿名の不動産価格査定フォーム。国交省「不動産情報ライブラリ」の実成約事例から参考価格レンジを算出し、結果をメール送信＋リード保存。ショートコード [fudosan_satei] をページに貼るだけ。
- * Version: 1.14.1
+ * Version: 1.15.0
  * Author: (運営者)
  * License: GPLv2 or later
  * Text Domain: fudosan-satei
@@ -14,7 +14,7 @@
 
 if (!defined('ABSPATH')) exit; // 直接アクセス禁止
 
-define('FS_VER', '1.14.1');
+define('FS_VER', '1.15.0');
 define('FS_OPT', 'fudosan_satei_options');
 define('FS_ENDPOINT', 'https://www.reinfolib.mlit.go.jp/ex-api/external/XIT001');
 
@@ -27,8 +27,10 @@ define('FS_ENDPOINT', 'https://www.reinfolib.mlit.go.jp/ex-api/external/XIT001')
  */
 define('FS_UPDATE_URL', 'https://raw.githubusercontent.com/yoshimucom-gif/fudosan-satei-plugin/main/update.json');
 
-/* 自動更新チェッカー（管理画面のみ・URL未設定なら無効） */
-if (is_admin()) {
+/* 更新チェッカー（URL未設定なら無効）
+   ★is_admin() で囲まないこと。WordPressの自動更新は WP-Cron（管理画面外）で走るため、
+     管理画面限定にすると「自動更新を有効化」をONにしても更新が入らない。 */
+if (is_admin() || (defined('DOING_CRON') && DOING_CRON) || (defined('WP_CLI') && WP_CLI)) {
     require_once __DIR__ . '/includes/plugin-updater.php';
     new FS_Satei_Updater(__FILE__, FS_UPDATE_URL);
 }

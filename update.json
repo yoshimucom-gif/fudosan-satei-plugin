@@ -1,6 +1,6 @@
 {
   "name": "かんたん不動産AI査定",
-  "version": "1.14.1",
+  "version": "1.15.0",
   "download_url": "https://raw.githubusercontent.com/yoshimucom-gif/fudosan-satei-plugin/main/fudosan-satei.zip",
   "requires": "5.8",
   "tested": "6.7",
@@ -8,6 +8,6 @@
   "author": "ミカタ株式会社",
   "homepage": "https://github.com/yoshimucom-gif/fudosan-satei-plugin",
   "sections": {
-    "changelog": "1.14.1\n・設定画面「自動返信メール」の説明を修正しました。免責文と、戸建て・土地の注意文言は、本文を自由に書き換えても自動で付く（消えない）仕組みであることを明記しました。同じ趣旨の文面をご自身で書かれた場合は、二重にならないよう自動付加を行いません"
+    "changelog": "1.15.0\n・【重要】WordPressの「自動更新を有効化」をONにしても更新が実行されない不具合を修正しました。更新チェックが管理画面を開いたときしか動かず、バックグラウンド処理（WP-Cron）で動いていなかったためです。今後は自動更新をONにすれば、管理画面を開かなくても更新が適用されます"
   }
 }
