@@ -2,7 +2,7 @@
 /**
  * Plugin Name: かんたん不動産AI査定
  * Description: 匿名の不動産価格査定フォーム。国交省「不動産情報ライブラリ」の実成約事例から参考価格レンジを算出し、結果をメール送信＋リード保存。ショートコード [fudosan_satei] をページに貼るだけ。
- * Version: 1.13.0
+ * Version: 1.14.0
  * Author: (運営者)
  * License: GPLv2 or later
  * Text Domain: fudosan-satei
@@ -14,7 +14,7 @@
 
 if (!defined('ABSPATH')) exit; // 直接アクセス禁止
 
-define('FS_VER', '1.13.0');
+define('FS_VER', '1.14.0');
 define('FS_OPT', 'fudosan_satei_options');
 define('FS_ENDPOINT', 'https://www.reinfolib.mlit.go.jp/ex-api/external/XIT001');
 
@@ -960,6 +960,20 @@ function fs_mail_body($ctx) {
     // 未設定の項目で「お問い合わせ: 」のようにラベルだけが残らないよう、その行ごと落とす
     if (trim($repl['{operator_contact}']) === '') $tmpl = preg_replace('/^.*\{operator_contact\}.*\R?/m', '', $tmpl);
     if (trim($repl['{operator_name}'])    === '') $tmpl = preg_replace('/^\h*\{operator_name\}\h*\R?/m', '', $tmpl);
+    // 土地・戸建ての注意文言も、テンプレート編集で消せないよう本文の外で必ず付ける。
+    // 差し込み先は {property_details} の直後＝価格や物件情報のすぐ下（署名より前に置く）
+    $caution = fs_type_caution(isset($ctx['ptype']) ? $ctx['ptype'] : '');
+    if ($caution !== '' && strpos($tmpl, '埋設物') === false) {
+        $block = "\n\n───────────────────────────────\n" . $caution
+               . "\n───────────────────────────────";
+        if (strpos($tmpl, '{reason}') !== false) {
+            $tmpl = str_replace('{reason}', '{reason}' . $block, $tmpl);          // 価格と根拠の直後
+        } elseif (strpos($tmpl, '{property_details}') !== false) {
+            $tmpl = str_replace('{property_details}', '{property_details}' . $block, $tmpl);
+        } else {
+            $tmpl = rtrim($tmpl) . $block;   // 差し込みタグが無いテンプレートでも必ず出す
+        }
+    }
     return fs_with_disclaimer(rtrim(strtr($tmpl, $repl)));
 }
 
@@ -978,6 +992,26 @@ function fs_legal_disclaimer() {
         . "  成約価格を保証するものではありません。\n"
         . "・正確な価格は、現地確認を含む個別査定が必要です。\n"
         . "───────────────────────────────";
+}
+
+/**
+ * 土地・戸建て向けの注意文言。
+ * これらは現地確認が必要な要素（接道・高低差・埋設物など）で価格が大きく動くため、
+ * 匿名査定の結果が実勢と大きく乖離する（実測: 岡山市北区の土地は±30%以内が20.7%）。
+ * ★免責と同じく、価格を出すすべての経路（画面・メール）に必ず添えること。
+ */
+function fs_type_caution($ptype, $context = 'mail') {
+    if (!in_array($ptype, array('house', 'land'), true)) return '';   // マンションは対象外
+    // 結びは経路で変える（画面ではまだメールを見ていないので「ご返信ください」と言えない）
+    $cta = ($context === 'screen')
+        ? "より精緻な査定をご希望の場合は、訪問査定（現地を確認したうえでの本査定）を承ります。"
+          . "この後お送りするメールにご返信いただければ、担当者よりご連絡いたします。"
+        : "より精緻な査定をご希望の場合は、訪問査定（現地を確認したうえでの本査定）を承ります。"
+          . "ご売却のご事情やご希望の時期など、このメールにそのままご返信ください。担当者よりご連絡いたします。";
+    return "土地・戸建ての査定は本来、地形、接道道路の種別、権利関係、高低差、埋設物など、"
+         . "現地を確認しなければ反映できない要素に大きく左右されます。\n"
+         . "そのため、匿名査定の結果はあくまで目安であり、実際の価格と大きく異なる場合がございます。\n"
+         . $cta;
 }
 
 function fs_with_disclaimer($body) {
@@ -1218,6 +1252,7 @@ function fs_ajax() {
     }
 
     $ctx = array(
+        'ptype' => $ptype,   // 種別ごとの注意文言（土地・戸建て）の判定に使う
         'ptype_label' => $label, 'pref' => $pref_name, 'city' => $city_name, 'area' => $area, 'build_year' => $byear,
         'district' => $district, 'station_name' => $sname, 'station_min' => $smin, 'floor_plan' => $fplan,
         'purpose' => $purpose,
@@ -1236,6 +1271,7 @@ function fs_ajax() {
         'station_name' => $sname, 'floor_plan' => $fplan, 'district' => $district, 'purpose' => $purpose,
         'low_man' => $ctx['low_man'], 'mid_man' => $ctx['mid_man'], 'high_man' => $ctx['high_man'],
         'sample_size' => $res['sample_size'], 'reason' => $res['reason'],
+        'caution' => fs_type_caution($ptype, 'screen'),   // 土地・戸建てのみ。価格と必ずセットで表示する
     ));
 }
 
@@ -1374,6 +1410,8 @@ function fs_shortcode($atts = array()) {
     .fs-wrap button:disabled{opacity:.6;cursor:wait;filter:none}
     .fs-disc{background:#fff8e6;border:1px solid #f0e0a8;border-radius:10px;padding:15px 17px;font-size:14px;color:#6b5a12;margin-top:18px}
     .fs-testmode{background:#fdecea;border:2px solid #c0392b;border-radius:10px;padding:13px 15px;font-size:15px;color:#c0392b;font-weight:700;margin-bottom:18px}
+    /* 土地・戸建ての注意文言。価格のすぐ下に置き、読み飛ばされないよう左に色帯を立てる */
+    .fs-caution{background:#f7f9fc;border:1px solid var(--fs-line);border-left:4px solid var(--fs-brand);border-radius:8px;padding:14px 16px;font-size:15px;line-height:1.85;color:#374151;margin-top:16px}
     /* ハニーポット：display:none だと一部のボットに読まれるため画面外へ逃がす */
     .fs-hp{position:absolute!important;left:-9999px!important;top:auto;width:1px;height:1px;overflow:hidden}
     .fs-privacy-note{background:#f6f8fa;border:1px solid var(--fs-line);border-radius:9px;padding:13px 15px;font-size:14px;color:#4b5563;line-height:1.75;margin-top:16px}
@@ -1876,9 +1914,10 @@ function fs_shortcode($atts = array()) {
         + '<p class="fs-mid">中央値の目安：'+esc(d.mid_man)+' ／ 使用事例 '+esc(d.sample_size)+'件</p>'
         + '<table class="fs-spec">'+rows+'</table>'
         + '<p class="fs-hint">'+esc(d.reason)+'</p>'
+        + (d.caution ? '<div class="fs-caution">'+esc(d.caution).replace(/\n/g,'<br>')+'</div>' : '')
+        + disc
         + (d.mail_ok ? '<p class="fs-ok">✓ '+esc(d.email)+' 宛に査定結果をメールで送信しました。</p>'
-                     : '<p class="fs-err">メール送信に失敗しました。時間をおいて再度お試しください。</p>')
-        + disc;
+                     : '<p class="fs-err">メール送信に失敗しました。時間をおいて再度お試しください。</p>');
     } else {
       html = '<h3 style="margin-top:0">査定結果</h3><p>'+esc(d.reason)+'</p>'
         + '<p class="fs-hint">'+esc(d.email)+' 宛に受付のご連絡をお送りしました。個別査定をご希望の場合はご返信ください。</p>' + disc;
