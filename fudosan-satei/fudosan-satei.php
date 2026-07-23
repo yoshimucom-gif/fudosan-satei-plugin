@@ -2,7 +2,7 @@
 /**
  * Plugin Name: かんたん不動産AI査定
  * Description: 匿名の不動産価格査定フォーム。国交省「不動産情報ライブラリ」の実成約事例から参考価格レンジを算出し、結果をメール送信＋リード保存。ショートコード [fudosan_satei] をページに貼るだけ。
- * Version: 1.17.0
+ * Version: 1.18.0
  * Author: (運営者)
  * License: GPLv2 or later
  * Text Domain: fudosan-satei
@@ -14,7 +14,7 @@
 
 if (!defined('ABSPATH')) exit; // 直接アクセス禁止
 
-define('FS_VER', '1.17.0');
+define('FS_VER', '1.18.0');
 define('FS_OPT', 'fudosan_satei_options');
 define('FS_ENDPOINT', 'https://www.reinfolib.mlit.go.jp/ex-api/external/XIT001');
 
@@ -119,6 +119,13 @@ function fs_opt($key, $default = '') {
  * ヘッダは偽装可能だが、本命の防御は「メールアドレス単位の制限」なので許容する
  * （攻撃者は宛先を変えられない＝爆撃したい相手のアドレスは固定されるため）。
  */
+/* 文字数でDBカラム長に収める（超過するとinsertが失敗してリードが消える） */
+function fs_trim_len($s, $max) {
+    $s = (string)$s;
+    if ($s === '') return $s;
+    return function_exists('mb_substr') ? mb_substr($s, 0, $max) : substr($s, 0, $max);
+}
+
 function fs_client_ip() {
     foreach (array('HTTP_CF_CONNECTING_IP', 'HTTP_X_REAL_IP', 'HTTP_X_FORWARDED_FOR') as $h) {
         if (!empty($_SERVER[$h])) {
@@ -373,12 +380,12 @@ function fs_settings_page() {
                     <p class="description">フォームとメールに表示されます。<strong>お客様が「どこの会社に情報を渡すのか」を判断する材料</strong>なので、必ずご記入ください。</p></td></tr>
                 <tr><th>所在地</th><td><input type="text" name="<?php echo FS_OPT; ?>[operator_address]" value="<?php echo esc_attr(fs_opt('operator_address')); ?>" size="50" placeholder="例：岡山県岡山市北区○○1-2-3"></td></tr>
                 <tr><th>問い合わせ先</th><td><input type="text" name="<?php echo FS_OPT; ?>[operator_contact]" value="<?php echo esc_attr(fs_opt('operator_contact')); ?>" size="40" placeholder="例：086-000-0000 / info@example.com"></td></tr>
-                <tr><th>送信元メール</th><td><input type="email" name="<?php echo FS_OPT; ?>[from_email]" value="<?php echo esc_attr(fs_opt('from_email', get_option('admin_email'))); ?>" size="40">
+                <tr><th>送信元メール</th><td><input type="email" name="<?php echo FS_OPT; ?>[from_email]" value="<?php echo esc_attr(fs_opt('from_email')); ?>" size="40" placeholder="<?php echo esc_attr(get_option('admin_email')); ?>">
                     <p class="description">お客様への査定結果メールの差出人。到達率のため WP Mail SMTP 等で SPF/DKIM を設定推奨。</p></td></tr>
                 <tr><th>通知先メール（担当者）</th><td><input type="email" name="<?php echo FS_OPT; ?>[notify_email]" value="<?php echo esc_attr(fs_opt('notify_email')); ?>" size="40">
                     <p class="description">査定リードが入ったら、このアドレスに通知します。空欄なら送信元メール（無ければ管理者アドレス）に通知します。<br>通知したくない場合は下の「担当者に通知する」のチェックを外してください。</p></td></tr>
                 <tr><th>リード通知</th><td>
-                    <label><input type="checkbox" name="<?php echo FS_OPT; ?>[notify_on]" value="1" <?php checked(fs_opt('notify_on', '1'), '1'); ?>> 査定リードが入ったら担当者に通知する</label>
+                    <label><input type="checkbox" name="<?php echo FS_OPT; ?>[notify_on]" value="1" <?php checked(fs_notify_on()); ?>> 査定リードが入ったら担当者に通知する</label>
                 </td></tr>
                 <tr><th>プライバシーポリシーURL</th><td><input type="url" name="<?php echo FS_OPT; ?>[privacy_url]" value="<?php echo esc_attr(fs_opt('privacy_url')); ?>" size="50"></td></tr>
                 <tr><th>利用規約・免責URL</th><td><input type="url" name="<?php echo FS_OPT; ?>[terms_url]" value="<?php echo esc_attr(fs_opt('terms_url')); ?>" size="50"></td></tr>
@@ -1156,10 +1163,6 @@ function fs_ajax() {
     if ($bot) wp_send_json(array('ok' => false, 'errors' => $bot));
 
     $lim = fs_rl_limits();
-    if (!fs_rate_ok('ip', fs_client_ip(), $lim['ip_max'], $lim['ip_window'])) {
-        wp_send_json(array('ok' => false, 'errors' => array(
-            '送信が集中しています。しばらく時間をおいてからお試しください。')));
-    }
 
     $ptype = sanitize_text_field($_POST['ptype'] ?? '');
     $pref  = sanitize_text_field($_POST['pref_code'] ?? '');
@@ -1193,6 +1196,13 @@ function fs_ajax() {
     }
     if ($errors) wp_send_json(array('ok' => false, 'errors' => $errors));
 
+    // ★入力内容が正しいときだけ回数を数える。
+    //   入力ミスでも数えると、間違えた正規のお客様が先にブロックされてしまう。
+    if (!fs_rate_ok('ip', fs_client_ip(), $lim['ip_max'], $lim['ip_window'])) {
+        wp_send_json(array('ok' => false, 'errors' => array(
+            '送信が集中しています。しばらく時間をおいてからお試しください。')));
+    }
+
     // ★本命の防御：同一アドレス宛の連続送信を止める。これが無いと、任意の第三者のアドレスを
     //   入れて連打されるだけで、自社ドメインからのメール爆撃の踏み台になる。
     if (!fs_rate_ok('email', $email, $lim['email_max'], $lim['email_window'])) {
@@ -1215,6 +1225,11 @@ function fs_ajax() {
 
     // リード保存（事例不足でも保存＝営業価値）
     global $wpdb;
+    // カラム長を超えるとinsertが失敗しリードが丸ごと消えるため、保存前に丸める
+    $sname = fs_trim_len($sname, 100);
+    $fplan = fs_trim_len($fplan, 30);
+    $district = fs_trim_len($district, 100);
+
     $ins = $wpdb->insert($wpdb->prefix . 'fudosan_satei_leads', array(
         'created_at' => current_time('mysql'), 'email' => $email,
         'pref' => $pref_name, 'city' => $city_name, 'ptype' => $ptype,
@@ -1408,6 +1423,7 @@ function fs_shortcode($atts = array()) {
     .fs-wrap{--fs-brand:<?php echo esc_attr($c_brand); ?>;--fs-brand-rgb:<?php echo esc_attr($c_brand_rgb); ?>;--fs-btn-text:<?php echo esc_attr($c_btn_text); ?>;--fs-title:<?php echo esc_attr($c_title); ?>;--fs-badge-bg:<?php echo esc_attr($c_badge); ?>;--fs-ink:#1a1f36;--fs-muted:#6b7280;--fs-line:#e5e7eb;width:100%;max-width:none;margin:0;color:var(--fs-ink);font-family:inherit;line-height:1.75;font-size:17px}
     /* 最後の要素（免責など）で切れると窮屈に見えるので、フォーム・結果とも下に余白を持たせる */
     .fs-card{background:transparent;border:0;border-radius:0;padding:0 0 28px}
+    .fs-wrap{overflow-wrap:anywhere}   /* 長いメールアドレスや住所で横スクロールさせない */
     .fs-card > :last-child{margin-bottom:0}
     .fs-wrap label{display:block;font-weight:600;margin:18px 0 7px;font-size:19px}
     /* 必須／任意バッジ */
@@ -1427,7 +1443,8 @@ function fs_shortcode($atts = array()) {
 
     .fs-wrap input,.fs-wrap select{width:100%;padding:14px 15px;border:1px solid #cbd5e1;border-radius:9px;font-size:18px;background:#fff;box-sizing:border-box;transition:border-color .15s,box-shadow .15s}
     .fs-wrap input:focus,.fs-wrap select:focus{outline:none;border-color:var(--fs-brand);box-shadow:0 0 0 3px rgba(var(--fs-brand-rgb),.15)}
-    .fs-row{display:flex;gap:12px}.fs-row>div{flex:1}
+    .fs-row{display:flex;gap:12px;flex-wrap:wrap}.fs-row>div{flex:1 1 150px;min-width:0}
+    @media(max-width:560px){.fs-row{display:block}}
     .fs-hint{color:var(--fs-muted);font-size:15px;margin-top:5px;line-height:1.7}
     .fs-check{display:flex;gap:9px;align-items:flex-start;margin-top:14px}
     .fs-check input{width:auto;margin-top:6px;transform:scale(1.2)}.fs-check label{margin:0;font-weight:400;font-size:16px}
@@ -1703,6 +1720,8 @@ function fs_shortcode($atts = array()) {
   var AJAX = <?php echo wp_json_encode($ajax); ?>;
   var NONCE = <?php echo wp_json_encode($nonce); ?>;
   var LOADED_AT = Date.now();   // ページキャッシュがあってもJS側で計測すれば正しく効く
+  var SENDING = false;          // 送信中フラグ（二重送信の防止）
+  var SUBMIT_LABEL = null;      // ボタンの元の文言（送信後に既定文へ化けさせない）
   var WRAP_ID = <?php echo wp_json_encode($uid); ?>;
   var TEASER = <?php echo $teaser ? 'true' : 'false'; ?>;
   var TARGET = <?php echo wp_json_encode($target); ?>;
@@ -1736,6 +1755,7 @@ function fs_shortcode($atts = array()) {
   var form = wrap.querySelector('.fs-form'), errBox = wrap.querySelector('.fs-errors');
   var formCard = wrap.querySelector('.fs-form-card'), resultCard = wrap.querySelector('.fs-result');
   var btn = wrap.querySelector('.fs-submit');
+  SUBMIT_LABEL = btn ? btn.textContent : '無料で査定結果を受け取る';   // ショートコードで変えた文言を保持する
 
   var ptypeSel = wrap.querySelector('select[name="ptype"]');
   var cov = wrap.querySelector('.fs-coverage');
@@ -1969,6 +1989,12 @@ function fs_shortcode($atts = array()) {
       return;
     }
 
+    /* ★二重送信の防止。btn.disabled だけでは、ボタンを連打されたときに
+       disabled が付く前のクリックや、通信完了後の再クリックが通ってしまい、
+       同じお客様のリードが複数件登録され、担当者にも同じ通知が何通も届く。 */
+    if (SENDING) return;
+    SENDING = true;
+
     errBox.innerHTML = '';
     btn.disabled = true; btn.textContent = '査定中…';
 
@@ -1998,13 +2024,24 @@ function fs_shortcode($atts = array()) {
 
     send(false)
       .then(function(d){
-        if (!d) return;
-        btn.disabled = false; btn.textContent = '無料で査定結果を受け取る';
-        if (d.errors) { errBox.innerHTML = d.errors.map(function(x){return '<div class="fs-err">'+esc(x)+'</div>';}).join(''); return; }
+        SENDING = false;
+        btn.disabled = false; btn.textContent = SUBMIT_LABEL;
+        /* ★応答が正しい形か必ず確かめる。
+           admin-ajax は失敗時に -1 や 0 という「JSONとして解釈できてしまう値」を返す。
+           素通しすると、1件も保存されていないのに完了画面が出てお客様を待たせ続ける。 */
+        if (!d || typeof d !== 'object' || (d.ok !== true && !d.errors && !d.insufficient)) {
+          throw new Error('bad-response');
+        }
+        if (d.errors) {
+          errBox.innerHTML = d.errors.map(function(x){return '<div class="fs-err">'+esc(x)+'</div>';}).join('');
+          errBox.scrollIntoView({ behavior:'smooth', block:'center' });   // 画面外だと「無反応」に見えて連打される
+          return;
+        }
         renderResult(d);
       })
       .catch(function(){
-        btn.disabled = false; btn.textContent = '無料で査定結果を受け取る';
+        SENDING = false;   // ★失敗時も必ず戻す。戻さないと二度と送信できなくなる
+        btn.disabled = false; btn.textContent = SUBMIT_LABEL;
         errBox.innerHTML = '<div class="fs-err">通信エラーが発生しました。時間をおいて再度お試しください。</div>';
       });
   });
@@ -2030,10 +2067,13 @@ function fs_shortcode($atts = array()) {
         + (d.caution ? '<div class="fs-caution">'+esc(d.caution).replace(/\n/g,'<br>')+'</div>' : '')
         + disc
         + (d.mail_ok ? '<p class="fs-ok">✓ '+esc(d.email)+' 宛に査定結果をメールで送信しました。</p>'
-                     : '<p class="fs-err">メール送信に失敗しました。時間をおいて再度お試しください。</p>');
+                     : '<p class="fs-err">査定結果は上記の通りです。確認メールの送信に失敗した可能性があります。迷惑メールフォルダをご確認いただくか、下記までお問い合わせください。</p>');
     } else {
       html = '<h3 style="margin-top:0">査定結果</h3><p>'+esc(d.reason)+'</p>'
-        + '<p class="fs-hint">'+esc(d.email)+' 宛に受付のご連絡をお送りしました。個別査定をご希望の場合はご返信ください。</p>' + disc;
+        + (d.mail_ok
+            ? '<p class="fs-hint">'+esc(d.email)+' 宛に受付のご連絡をお送りしました。個別査定をご希望の場合はご返信ください。</p>'
+            : '<p class="fs-hint">ご入力内容は受け付けました（確認メールの送信に失敗した可能性があります。担当者より別途ご連絡いたします）。</p>')
+        + disc;
     }
     resultCard.innerHTML = html;
     formCard.style.display = 'none';
