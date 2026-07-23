@@ -1,6 +1,6 @@
 {
   "name": "かんたん不動産AI査定",
-  "version": "1.16.1",
+  "version": "1.16.2",
   "download_url": "https://raw.githubusercontent.com/yoshimucom-gif/fudosan-satei-plugin/main/fudosan-satei.zip",
   "requires": "5.8",
   "tested": "6.7",
@@ -8,6 +8,6 @@
   "author": "ミカタ株式会社",
   "homepage": "https://github.com/yoshimucom-gif/fudosan-satei-plugin",
   "sections": {
-    "changelog": "1.16.1\n・査定結果の下に余白がなく詰まって見える点を修正しました\n・戸建て・土地の注意文言に「⚠ ご確認ください」の見出しを付け、オレンジの警告色にして目立つようにしました"
+    "changelog": "1.16.2\n・ブラウザの「戻る」で査定フォームに戻ったとき、都道府県が入っているのに市区町村が「先に都道府県を選択」のままで選べなくなる不具合を修正しました\n・ステップ1から引き継いだ都道府県・市区町村が、ブラウザの自動入力（オートフィル）によって別の地域に書き換えられてしまう場合があったため、引き継いだ内容を優先するようにしました。あわせて都道府県・市区町村・地区の各欄で自動入力を無効にしています\n・査定フォームの下に余白がなく詰まって見える点を修正しました"
   }
 }

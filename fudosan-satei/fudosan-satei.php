@@ -2,7 +2,7 @@
 /**
  * Plugin Name: かんたん不動産AI査定
  * Description: 匿名の不動産価格査定フォーム。国交省「不動産情報ライブラリ」の実成約事例から参考価格レンジを算出し、結果をメール送信＋リード保存。ショートコード [fudosan_satei] をページに貼るだけ。
- * Version: 1.16.1
+ * Version: 1.16.2
  * Author: (運営者)
  * License: GPLv2 or later
  * Text Domain: fudosan-satei
@@ -14,7 +14,7 @@
 
 if (!defined('ABSPATH')) exit; // 直接アクセス禁止
 
-define('FS_VER', '1.16.1');
+define('FS_VER', '1.16.2');
 define('FS_OPT', 'fudosan_satei_options');
 define('FS_ENDPOINT', 'https://www.reinfolib.mlit.go.jp/ex-api/external/XIT001');
 
@@ -1389,10 +1389,9 @@ function fs_shortcode($atts = array()) {
 <div class="fs-wrap fs-design-<?php echo esc_attr($design); ?>" id="<?php echo esc_attr($uid); ?>">
   <style>
     .fs-wrap{--fs-brand:<?php echo esc_attr($c_brand); ?>;--fs-brand-rgb:<?php echo esc_attr($c_brand_rgb); ?>;--fs-btn-text:<?php echo esc_attr($c_btn_text); ?>;--fs-title:<?php echo esc_attr($c_title); ?>;--fs-badge-bg:<?php echo esc_attr($c_badge); ?>;--fs-ink:#1a1f36;--fs-muted:#6b7280;--fs-line:#e5e7eb;width:100%;max-width:none;margin:0;color:var(--fs-ink);font-family:inherit;line-height:1.75;font-size:17px}
-    .fs-card{background:transparent;border:0;border-radius:0;padding:0}
-    /* 結果カードは最後の要素で切れると窮屈に見えるので、下に余白を持たせる */
-    .fs-result{padding-bottom:28px}
-    .fs-result > :last-child{margin-bottom:0}
+    /* 最後の要素（免責など）で切れると窮屈に見えるので、フォーム・結果とも下に余白を持たせる */
+    .fs-card{background:transparent;border:0;border-radius:0;padding:0 0 28px}
+    .fs-card > :last-child{margin-bottom:0}
     .fs-wrap label{display:block;font-weight:600;margin:18px 0 7px;font-size:19px}
     /* 必須／任意バッジ */
     .fs-req,.fs-opt{font-size:11px;font-weight:700;border-radius:4px;padding:4px 7px;line-height:1;margin-left:8px;display:inline-flex;align-items:center;vertical-align:middle;letter-spacing:.02em;white-space:nowrap;flex:0 0 auto}
@@ -1526,9 +1525,9 @@ function fs_shortcode($atts = array()) {
 <?php elseif ($k === 'ptype'): ?>
           <select name="ptype" required><?php echo $ptype_options; ?></select>
 <?php elseif ($k === 'pref'): ?>
-          <select class="fs-pref" name="pref_code" id="fs-pref" required><?php echo $pref_options; ?></select>
+          <select class="fs-pref" name="pref_code" id="fs-pref" autocomplete="off" required><?php echo $pref_options; ?></select>
 <?php elseif ($k === 'city'): ?>
-          <select class="fs-city" name="city_code" id="fs-city" required><option value="">先に都道府県を選択</option></select>
+          <select class="fs-city" name="city_code" id="fs-city" autocomplete="off" required><option value="">先に都道府県を選択</option></select>
 <?php elseif ($k === 'area'): ?>
           <input type="number" name="area" step="0.01" min="1" placeholder="例：70" required>
 <?php elseif ($k === 'build_year'): ?>
@@ -1564,11 +1563,11 @@ function fs_shortcode($atts = array()) {
       <div class="fs-row">
         <div>
           <label>都道府県<span class="fs-req">必須</span></label>
-          <select class="fs-pref" name="pref_code" id="fs-pref" required><?php echo $pref_options; ?></select>
+          <select class="fs-pref" name="pref_code" id="fs-pref" autocomplete="off" required><?php echo $pref_options; ?></select>
         </div>
         <div>
           <label>市区町村<span class="fs-req">必須</span></label>
-          <select class="fs-city" name="city_code" id="fs-city" required><option value="">先に都道府県を選択</option></select>
+          <select class="fs-city" name="city_code" id="fs-city" autocomplete="off" required><option value="">先に都道府県を選択</option></select>
         </div>
       </div>
 
@@ -1577,7 +1576,7 @@ function fs_shortcode($atts = array()) {
 
 <?php if ($show_district): ?>
       <label>地区（町名）<span class="fs-opt">任意</span></label>
-      <select class="fs-district" name="district"><option value="">市区町村を選ぶと表示されます</option></select>
+      <select class="fs-district" name="district" autocomplete="off"><option value="">市区町村を選ぶと表示されます</option></select>
       <div class="fs-hint">選ぶと査定精度が上がります（同じ市区町村でも地区で相場が違うため）</div>
 <?php endif; ?>
 
@@ -1782,13 +1781,32 @@ function fs_shortcode($atts = array()) {
     el.addEventListener('input', updateFormState);
   });
 
-  if (pref) pref.addEventListener('change', function(){
+  // 都道府県に応じて市区町村の選択肢を作る。keepCity=true なら選択中の市区町村を維持する
+  function fillCities(keepCity){
+    if (!pref || !city) return;
+    var prev = keepCity ? city.value : '';
     var list = CITIES[pref.value] || [];
-    if (city) city.innerHTML = '<option value="">' + (pref.value ? '選択してください' : '先に都道府県を選択') + '</option>' +
+    city.innerHTML = '<option value="">' + (pref.value ? '選択してください' : '先に都道府県を選択') + '</option>' +
       list.map(function(c){ return '<option value="'+c[0]+'">'+c[1]+'</option>'; }).join('');
-    if (district) district.innerHTML = '<option value="">市区町村を選ぶと表示されます</option>';
+    if (prev) city.value = prev;                 // 復元できなければ空に戻る
+    if (!keepCity && district) district.innerHTML = '<option value="">市区町村を選ぶと表示されます</option>';
+  }
+
+  if (pref) pref.addEventListener('change', function(){
+    fillCities(false);
     TYPE_COUNTS = null; renderCoverage(); updateFormState();
   });
+
+  /* ブラウザバック等でブラウザが入力値を復元しても change は発火しないため、
+     都道府県が入っているのに市区町村が空のままになる。読み込み時に自前で埋め直す。
+     bfcache から戻った場合は pageshow でしか検知できないので両方で処理する。 */
+  function restoreSelection(){
+    if (!pref || !pref.value || !city) return;
+    if (city.options.length <= 1) fillCities(true);   // 未生成なら作る（選択中の値は維持）
+    TYPE_COUNTS = null; renderCoverage(); updateFormState();
+  }
+  restoreSelection();
+  window.addEventListener('pageshow', function(e){ if (e.persisted) restoreSelection(); });
 
   if (city) city.addEventListener('change', function(){
     TYPE_COUNTS = null;
@@ -1848,20 +1866,34 @@ function fs_shortcode($atts = array()) {
   // ステップ1（teaser）から引き継いだ値を復元し、市区町村・事例数まで自動で読み込む
   if (!TEASER && PREFILL) {
     var hasPrefill = Object.keys(PREFILL).some(function(k){ return !!PREFILL[k]; });
-    ['purpose','area','build_year'].forEach(function(n){
-      var el = form.elements[n];
-      if (el && PREFILL[n]) el.value = PREFILL[n];
-    });
-    if (PREFILL.ptype && ptypeSel) ptypeSel.value = PREFILL.ptype;
-    if (PREFILL.pref && pref) {
-      pref.value = PREFILL.pref;
-      pref.dispatchEvent(new Event('change'));
-      if (PREFILL.city && city) {
-        city.value = PREFILL.city;
-        city.dispatchEvent(new Event('change'));
+
+    function applyPrefill(){
+      ['purpose','area','build_year'].forEach(function(n){
+        var el = form.elements[n];
+        if (el && PREFILL[n]) el.value = PREFILL[n];
+      });
+      if (PREFILL.ptype && ptypeSel) ptypeSel.value = PREFILL.ptype;
+      if (PREFILL.pref && pref) {
+        pref.value = PREFILL.pref;
+        pref.dispatchEvent(new Event('change'));
+        if (PREFILL.city && city) {
+          city.value = PREFILL.city;
+          city.dispatchEvent(new Event('change'));
+        }
       }
+      updateFormState();
     }
-    updateFormState();
+    applyPrefill();
+
+    /* ブラウザの自動入力（オートフィル）は、こちらの復元より後に走って値を
+       上書きすることがある。また戻る操作（bfcache）では以前の入力値が復元される。
+       いずれの場合も引き継いだ値が正しいので、取り戻す。 */
+    if (hasPrefill) {
+      setTimeout(applyPrefill, 0);
+      setTimeout(applyPrefill, 250);
+      window.addEventListener('pageshow', function(e){ if (e.persisted) applyPrefill(); });
+    }
+
     if (hasPrefill) {                       // 引き継ぎ時のみ（通常の直アクセスでは動かさない）
       insertResumeBanner();
       scrollToFirstEmpty();
