@@ -1,6 +1,6 @@
 {
   "name": "かんたん不動産AI査定",
-  "version": "1.16.0",
+  "version": "1.16.1",
   "download_url": "https://raw.githubusercontent.com/yoshimucom-gif/fudosan-satei-plugin/main/fudosan-satei.zip",
   "requires": "5.8",
   "tested": "6.7",
@@ -8,6 +8,6 @@
   "author": "ミカタ株式会社",
   "homepage": "https://github.com/yoshimucom-gif/fudosan-satei-plugin",
   "sections": {
-    "changelog": "1.16.0\n・【重要】当社が宅地建物取引業者であることを前提とした記載を全面的に修正しました。免責文を「宅建業者による価格査定」から「参考価格の情報提供」に改め、あわせて『当社は宅地建物取引業者ではなく、売買の媒介・代理は行いません。ご売却をご検討の場合は宅地建物取引業者にご相談ください』を明記します（画面・メールの両方）\n・設定画面から「宅地建物取引業 免許番号」の入力欄を削除し、フォームの提供元表示からも免許番号の欄を削除しました"
+    "changelog": "1.16.1\n・査定結果の下に余白がなく詰まって見える点を修正しました\n・戸建て・土地の注意文言に「⚠ ご確認ください」の見出しを付け、オレンジの警告色にして目立つようにしました"
   }
 }

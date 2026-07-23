@@ -2,7 +2,7 @@
 /**
  * Plugin Name: かんたん不動産AI査定
  * Description: 匿名の不動産価格査定フォーム。国交省「不動産情報ライブラリ」の実成約事例から参考価格レンジを算出し、結果をメール送信＋リード保存。ショートコード [fudosan_satei] をページに貼るだけ。
- * Version: 1.16.0
+ * Version: 1.16.1
  * Author: (運営者)
  * License: GPLv2 or later
  * Text Domain: fudosan-satei
@@ -14,7 +14,7 @@
 
 if (!defined('ABSPATH')) exit; // 直接アクセス禁止
 
-define('FS_VER', '1.16.0');
+define('FS_VER', '1.16.1');
 define('FS_OPT', 'fudosan_satei_options');
 define('FS_ENDPOINT', 'https://www.reinfolib.mlit.go.jp/ex-api/external/XIT001');
 
@@ -1390,6 +1390,9 @@ function fs_shortcode($atts = array()) {
   <style>
     .fs-wrap{--fs-brand:<?php echo esc_attr($c_brand); ?>;--fs-brand-rgb:<?php echo esc_attr($c_brand_rgb); ?>;--fs-btn-text:<?php echo esc_attr($c_btn_text); ?>;--fs-title:<?php echo esc_attr($c_title); ?>;--fs-badge-bg:<?php echo esc_attr($c_badge); ?>;--fs-ink:#1a1f36;--fs-muted:#6b7280;--fs-line:#e5e7eb;width:100%;max-width:none;margin:0;color:var(--fs-ink);font-family:inherit;line-height:1.75;font-size:17px}
     .fs-card{background:transparent;border:0;border-radius:0;padding:0}
+    /* 結果カードは最後の要素で切れると窮屈に見えるので、下に余白を持たせる */
+    .fs-result{padding-bottom:28px}
+    .fs-result > :last-child{margin-bottom:0}
     .fs-wrap label{display:block;font-weight:600;margin:18px 0 7px;font-size:19px}
     /* 必須／任意バッジ */
     .fs-req,.fs-opt{font-size:11px;font-weight:700;border-radius:4px;padding:4px 7px;line-height:1;margin-left:8px;display:inline-flex;align-items:center;vertical-align:middle;letter-spacing:.02em;white-space:nowrap;flex:0 0 auto}
@@ -1418,7 +1421,10 @@ function fs_shortcode($atts = array()) {
     .fs-disc{background:#fff8e6;border:1px solid #f0e0a8;border-radius:10px;padding:15px 17px;font-size:14px;color:#6b5a12;margin-top:18px}
     .fs-testmode{background:#fdecea;border:2px solid #c0392b;border-radius:10px;padding:13px 15px;font-size:15px;color:#c0392b;font-weight:700;margin-bottom:18px}
     /* 土地・戸建ての注意文言。価格のすぐ下に置き、読み飛ばされないよう左に色帯を立てる */
-    .fs-caution{background:#f7f9fc;border:1px solid var(--fs-line);border-left:4px solid var(--fs-brand);border-radius:8px;padding:14px 16px;font-size:15px;line-height:1.85;color:#374151;margin-top:16px}
+    /* 土地・戸建ての注意文言。すぐ下の免責（淡い黄）より一段強い警告色にして視線を止める。
+       ただし赤にすると免責と並んで画面全体が警告色になり、かえって読み飛ばされるため濃い琥珀にする */
+    .fs-caution{background:#fff4e5;border:1px solid #f0b775;border-left:6px solid #d97706;border-radius:8px;padding:16px 18px;font-size:15px;line-height:1.85;color:#7c3d09;margin-top:18px}
+    .fs-caution::before{content:"⚠ ご確認ください";display:block;font-weight:800;font-size:14px;color:#b45309;margin-bottom:8px;letter-spacing:.02em}
     /* ハニーポット：display:none だと一部のボットに読まれるため画面外へ逃がす */
     .fs-hp{position:absolute!important;left:-9999px!important;top:auto;width:1px;height:1px;overflow:hidden}
     .fs-privacy-note{background:#f6f8fa;border:1px solid var(--fs-line);border-radius:9px;padding:13px 15px;font-size:14px;color:#4b5563;line-height:1.75;margin-top:16px}
@@ -1431,7 +1437,7 @@ function fs_shortcode($atts = array()) {
     .fs-spec{width:100%;border-collapse:collapse;margin:16px 0;font-size:17px}
     .fs-spec th,.fs-spec td{border-bottom:1px solid var(--fs-line);padding:12px 10px;text-align:left}
     .fs-spec th{color:var(--fs-muted);font-weight:600;width:38%}
-    .fs-ok{color:#0a7d33;font-weight:600;font-size:16px}
+    .fs-ok{color:#0a7d33;font-weight:600;font-size:16px;margin-top:16px}
     .fs-coverage{color:var(--fs-muted);font-size:14px;line-height:1.6;margin-top:8px}
 
     /* デザイン: compact / teaser（メインビジュアル横などに収める短い版） */
