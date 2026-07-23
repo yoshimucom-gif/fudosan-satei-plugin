@@ -2,19 +2,19 @@
 /**
  * Plugin Name: かんたん不動産AI査定
  * Description: 匿名の不動産価格査定フォーム。国交省「不動産情報ライブラリ」の実成約事例から参考価格レンジを算出し、結果をメール送信＋リード保存。ショートコード [fudosan_satei] をページに貼るだけ。
- * Version: 1.15.0
+ * Version: 1.16.0
  * Author: (運営者)
  * License: GPLv2 or later
  * Text Domain: fudosan-satei
  *
- * ★法的注意: 本プラグインが出すのは宅建業の「価格査定（参考価格）」であり、
+ * ★法的注意: 本プラグインが出すのは統計データに基づく「参考価格の情報提供」であり、
  *   不動産鑑定士の「鑑定評価」ではない。UI・メール・免責文で明示している。
  *   公開前に弁護士等の確認を推奨。
  */
 
 if (!defined('ABSPATH')) exit; // 直接アクセス禁止
 
-define('FS_VER', '1.15.0');
+define('FS_VER', '1.16.0');
 define('FS_OPT', 'fudosan_satei_options');
 define('FS_ENDPOINT', 'https://www.reinfolib.mlit.go.jp/ex-api/external/XIT001');
 
@@ -176,7 +176,6 @@ add_action('admin_notices', function () {
     if (!current_user_can('manage_options')) return;
     $miss = array();
     if (fs_opt('operator_name', '') === '')  $miss[] = '運営者名（会社名）';
-    if (fs_opt('license_no', '') === '')     $miss[] = '宅地建物取引業の免許番号';
     if (fs_opt('operator_contact', '') === '') $miss[] = '問い合わせ先';
     if (fs_opt('privacy_url', '') === '')    $miss[] = 'プライバシーポリシーURL';
     if (!$miss) return;
@@ -210,7 +209,6 @@ function fs_sanitize_options($in) {
         'operator_name'    => sanitize_text_field($in['operator_name'] ?? ''),
         'operator_contact' => sanitize_text_field($in['operator_contact'] ?? ''),
         'operator_address' => sanitize_text_field($in['operator_address'] ?? ''),
-        'license_no'       => sanitize_text_field($in['license_no'] ?? ''),
         'from_email'       => sanitize_email($in['from_email'] ?? get_option('admin_email')),
         'notify_email'     => sanitize_email($in['notify_email'] ?? ''),
         'notify_on'        => !empty($in['notify_on']) ? '1' : '',
@@ -324,11 +322,12 @@ function fs_default_mail_body() {
         . "{reason}\n\n"
         . "───────────────────────────────\n"
         . "【重要なご注意】\n"
-        . "・本結果はAIによる簡易的な『参考価格（価格査定）』であり、\n"
-        . "  不動産鑑定士による『鑑定評価』ではありません。\n"
+        . "・本結果は国土交通省が公表する不動産取引データを統計処理した\n"
+        . "  『参考価格の情報提供』であり、不動産鑑定士による『鑑定評価』ではありません。\n"
         . "・過去の周辺取引事例からの機械的な推定値で、実際の売却価格・\n"
         . "  成約価格を保証するものではありません。\n"
-        . "・正確な価格は、現地確認を含む個別査定が必要です。\n"
+        . "・当社は宅地建物取引業者ではなく、売買の媒介・代理は行いません。\n"
+        . "  ご売却をご検討の場合は、宅地建物取引業者にご相談ください。\n"
         . "───────────────────────────────\n\n"
         . "{operator_name}\n"
         . "お問い合わせ: {operator_contact}";
@@ -372,8 +371,6 @@ function fs_settings_page() {
                 <tr><th>サイト名</th><td><input type="text" name="<?php echo FS_OPT; ?>[site_name]" value="<?php echo esc_attr(fs_opt('site_name', 'かんたん不動産AI査定')); ?>" size="40"></td></tr>
                 <tr><th>運営者名（会社名）</th><td><input type="text" name="<?php echo FS_OPT; ?>[operator_name]" value="<?php echo esc_attr(fs_opt('operator_name')); ?>" size="40" placeholder="例：ミカタ株式会社">
                     <p class="description">フォームとメールに表示されます。<strong>お客様が「どこの会社に情報を渡すのか」を判断する材料</strong>なので、必ずご記入ください。</p></td></tr>
-                <tr><th>宅地建物取引業<br>免許番号</th><td><input type="text" name="<?php echo FS_OPT; ?>[license_no]" value="<?php echo esc_attr(fs_opt('license_no')); ?>" size="40" placeholder="例：岡山県知事免許（1）第○○○○号">
-                    <p class="description">フォームに表示されます。不動産の査定を受け付ける以上、<strong>これが無いとお客様から見て信頼性が大きく下がります</strong>。</p></td></tr>
                 <tr><th>所在地</th><td><input type="text" name="<?php echo FS_OPT; ?>[operator_address]" value="<?php echo esc_attr(fs_opt('operator_address')); ?>" size="50" placeholder="例：岡山県岡山市北区○○1-2-3"></td></tr>
                 <tr><th>問い合わせ先</th><td><input type="text" name="<?php echo FS_OPT; ?>[operator_contact]" value="<?php echo esc_attr(fs_opt('operator_contact')); ?>" size="40" placeholder="例：086-000-0000 / info@example.com"></td></tr>
                 <tr><th>送信元メール</th><td><input type="email" name="<?php echo FS_OPT; ?>[from_email]" value="<?php echo esc_attr(fs_opt('from_email', get_option('admin_email'))); ?>" size="40">
@@ -520,7 +517,7 @@ function fs_settings_page() {
 
             <h3 style="color:#b32d2e">法的な注意</h3>
             <p class="description">
-                本プラグインが出すのは宅建業の<strong>「価格査定（参考価格）」</strong>であり、不動産鑑定士による<strong>「鑑定評価」ではありません</strong>。
+                本プラグインが出すのは統計データに基づく<strong>「参考価格の情報提供」</strong>であり、不動産鑑定士による<strong>「鑑定評価」ではありません</strong>。
                 画面・メール・免責文でその旨を明示しています。<strong>免責文は削除しないでください。</strong>公開前に弁護士等の確認を推奨します。
             </p>
             </div>
@@ -814,7 +811,7 @@ function fs_yen_man($v) { return number_format($v / 10000) . '万円'; }
 /**
  * モックは「強制モック」を明示ONにしたときだけ。
  * ★APIキー未設定でモックに落としてはいけない。落とすと、実在しない架空の取引事例をもとにした
- *   価格を、お客様に「周辺の成約事例」として提示・メールしてしまう（宅建業法47条・景表法5条1号）。
+ *   価格を、お客様に「周辺の成約事例」として提示・メールしてしまう（景品表示法5条1号等）。
  *   キーが無いときは価格を出さず、個別査定へ誘導する（fs_api_ready を参照）。
  */
 function fs_use_mock() {
@@ -995,11 +992,12 @@ function fs_mail_body($ctx) {
 function fs_legal_disclaimer() {
     return "───────────────────────────────\n"
         . "【重要なご注意】\n"
-        . "・本結果は国土交通省の不動産取引データを統計処理した簡易的な\n"
-        . "  『参考価格（価格査定）』であり、不動産鑑定士による『鑑定評価』ではありません。\n"
+        . "・本結果は国土交通省が公表する不動産取引データを統計処理した\n"
+        . "  『参考価格の情報提供』であり、不動産鑑定士による『鑑定評価』ではありません。\n"
         . "・過去の周辺取引事例からの機械的な推定値で、実際の売却価格・\n"
         . "  成約価格を保証するものではありません。\n"
-        . "・正確な価格は、現地確認を含む個別査定が必要です。\n"
+        . "・当社は宅地建物取引業者ではなく、売買の媒介・代理は行いません。\n"
+        . "  ご売却をご検討の場合は、宅地建物取引業者にご相談ください。\n"
         . "───────────────────────────────";
 }
 
@@ -1654,20 +1652,19 @@ function fs_shortcode($atts = array()) {
 <?php endif; ?>
 <?php else: ?>
     <div class="fs-disc">
-      本サービスの結果はAIによる簡易的な<strong>参考価格（価格査定）</strong>であり、不動産鑑定士による<strong>鑑定評価ではありません</strong>。実際の売却価格を保証するものではありません。
+      本サービスの結果は、国土交通省が公表する不動産取引データを統計処理した<strong>参考価格の情報提供</strong>であり、不動産鑑定士による<strong>鑑定評価ではありません</strong>。実際の売却価格を保証するものではありません。<strong>当社は宅地建物取引業者ではなく、売買の媒介・代理は行いません。</strong>
     </div>
 <?php endif; ?>
 <?php
     /* 提供元の明示。お客様が「どこの誰に自宅の情報を渡すのか」を判断する材料であり、
        不動産では免許番号の有無が信頼性を大きく左右する。設定済みの項目だけを出す。 */
-    $op_name = fs_opt('operator_name', ''); $op_lic = fs_opt('license_no', '');
+    $op_name = fs_opt('operator_name', '');
     $op_addr = fs_opt('operator_address', ''); $op_tel = fs_opt('operator_contact', '');
-    if ($op_name || $op_lic || $op_addr || $op_tel):
+    if ($op_name || $op_addr || $op_tel):
 ?>
     <div class="fs-operator">
       <div class="fs-operator-t">このサービスの提供元</div>
 <?php if ($op_name): ?>      <div><span>運営</span><?php echo esc_html($op_name); ?></div>
-<?php endif; if ($op_lic): ?>      <div><span>免許番号</span><?php echo esc_html($op_lic); ?></div>
 <?php endif; if ($op_addr): ?>      <div><span>所在地</span><?php echo esc_html($op_addr); ?></div>
 <?php endif; if ($op_tel): ?>      <div><span>お問い合わせ</span><?php echo esc_html($op_tel); ?></div>
 <?php endif; ?>
@@ -1906,7 +1903,7 @@ function fs_shortcode($atts = array()) {
   });
 
   function renderResult(d){
-    var disc = '<div class="fs-disc">本結果はAIによる簡易的な<strong>参考価格（価格査定）</strong>であり、不動産鑑定士による<strong>鑑定評価ではありません</strong>。過去の周辺取引事例からの機械的な推定値で、実際の売却価格・成約価格を保証するものではありません。正確な価格には現地確認を含む個別査定が必要です。</div>';
+    var disc = '<div class="fs-disc">本結果は、国土交通省が公表する不動産取引データを統計処理した<strong>参考価格の情報提供</strong>であり、不動産鑑定士による<strong>鑑定評価ではありません</strong>。過去の周辺取引事例からの機械的な推定値で、実際の売却価格・成約価格を保証するものではありません。<strong>当社は宅地建物取引業者ではなく、売買の媒介・代理は行いません。</strong>ご売却をご検討の場合は、宅地建物取引業者にご相談ください。</div>';
     var html;
     if (d.ok) {
       var st = (d.station_name ? esc(d.station_name) : '') + (d.station_min ? ' 徒歩'+esc(d.station_min)+'分' : '');
