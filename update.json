@@ -1,6 +1,6 @@
 {
   "name": "かんたん不動産AI査定",
-  "version": "1.18.1",
+  "version": "1.19.0",
   "download_url": "https://raw.githubusercontent.com/yoshimucom-gif/fudosan-satei-plugin/main/fudosan-satei.zip",
   "requires": "5.8",
   "tested": "6.7",
@@ -8,6 +8,6 @@
   "author": "ミカタ株式会社",
   "homepage": "https://github.com/yoshimucom-gif/fudosan-satei-plugin",
   "sections": {
-    "changelog": "1.18.1\n・同じページにフォームを2つ設置した場合、2つ目のフォームで「同意します」のチェックが入らず送信できない問題を修正しました"
+    "changelog": "1.19.0\n・スマートフォンでの入力フォームを見やすくしました。項目名を上、入力欄を下の縦並びにして入力欄に画面幅いっぱいを使うようにしたため、「中古一戸建て（土地＋建物）」のような長い選択肢が途中で切れなくなりました\n・スマートフォンではロゴを省略し、見出しが不自然に折り返さないようにしました"
   }
 }

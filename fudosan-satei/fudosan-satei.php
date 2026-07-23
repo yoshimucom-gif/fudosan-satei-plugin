@@ -2,7 +2,7 @@
 /**
  * Plugin Name: かんたん不動産AI査定
  * Description: 匿名の不動産価格査定フォーム。国交省「不動産情報ライブラリ」の実成約事例から参考価格レンジを算出し、結果をメール送信＋リード保存。ショートコード [fudosan_satei] をページに貼るだけ。
- * Version: 1.18.1
+ * Version: 1.19.0
  * Author: (運営者)
  * License: GPLv2 or later
  * Text Domain: fudosan-satei
@@ -14,7 +14,7 @@
 
 if (!defined('ABSPATH')) exit; // 直接アクセス禁止
 
-define('FS_VER', '1.18.1');
+define('FS_VER', '1.19.0');
 define('FS_OPT', 'fudosan_satei_options');
 define('FS_ENDPOINT', 'https://www.reinfolib.mlit.go.jp/ex-api/external/XIT001');
 
@@ -1499,8 +1499,11 @@ function fs_shortcode($atts = array()) {
     .fs-teaser-head.fs-has-logo .fs-teaser-logo{flex:0 0 auto;line-height:0}
     .fs-teaser-head.fs-has-logo .fs-teaser-logo img{display:block;max-height:56px;max-width:80px;width:auto;height:auto}
     .fs-teaser-head.fs-has-logo .fs-teaser-texts{flex:1;min-width:0}
-    @media (max-width:380px){
-      .fs-teaser-head.fs-has-logo{flex-direction:column;text-align:center;gap:8px}
+    /* スマホ: ロゴは省いてタイトルに幅を使う（横並びだと見出しが不自然に折り返すため） */
+    @media (max-width:600px){
+      .fs-design-teaser .fs-teaser-logo{display:none}
+      .fs-design-teaser .fs-teaser-head.fs-has-logo{display:block;text-align:center}
+      .fs-design-teaser .fs-teaser-title{font-size:20px;text-wrap:balance}
     }
 
     /* teaser: ラベル横並び＋必須バッジ */
@@ -1509,6 +1512,13 @@ function fs_shortcode($atts = array()) {
     .fs-design-teaser .fs-tfield{flex:1;min-width:0}
     .fs-design-teaser .fs-tfield select,.fs-design-teaser .fs-tfield input{margin:0}
     .fs-design-teaser .fs-tlabel .fs-req,.fs-design-teaser .fs-tlabel .fs-opt{margin-left:0}
+    /* スマホ: ラベル142px固定だと入力欄が狭くなり、選択肢が途中で切れて読めない。
+       「項目名 → 入力欄」の縦積みにして、入力欄に全幅を与える */
+    @media (max-width:600px){
+      .fs-design-teaser .fs-trow{display:block;margin:16px 0}
+      .fs-design-teaser .fs-tlabel{width:auto;margin-bottom:6px}
+      .fs-design-teaser .fs-tfield select,.fs-design-teaser .fs-tfield input{width:100%}
+    }
     .fs-badge{background:var(--fs-badge-bg);color:#fff;font-size:11px;font-weight:700;border-radius:4px;padding:4px 7px;line-height:1;flex:0 0 auto;white-space:nowrap}
     .fs-badge.fs-done{background:var(--fs-brand);border-radius:50%;width:21px;height:21px;padding:0;font-size:12px;display:inline-flex;align-items:center;justify-content:center}
 
