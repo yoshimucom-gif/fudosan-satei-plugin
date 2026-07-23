@@ -2,7 +2,7 @@
 /**
  * Plugin Name: かんたん不動産AI査定
  * Description: 匿名の不動産価格査定フォーム。国交省「不動産情報ライブラリ」の実成約事例から参考価格レンジを算出し、結果をメール送信＋リード保存。ショートコード [fudosan_satei] をページに貼るだけ。
- * Version: 1.16.2
+ * Version: 1.17.0
  * Author: (運営者)
  * License: GPLv2 or later
  * Text Domain: fudosan-satei
@@ -14,7 +14,7 @@
 
 if (!defined('ABSPATH')) exit; // 直接アクセス禁止
 
-define('FS_VER', '1.16.2');
+define('FS_VER', '1.17.0');
 define('FS_OPT', 'fudosan_satei_options');
 define('FS_ENDPOINT', 'https://www.reinfolib.mlit.go.jp/ex-api/external/XIT001');
 
@@ -1129,6 +1129,23 @@ function fs_test_mail() {
 /* =========================================================================
  * 7. AJAX（admin-ajax 経由。REST無効化環境でも動く）
  * ======================================================================= */
+/**
+ * 新しいnonceを配る。
+ * ページキャッシュが効いていると、HTMLに焼き込まれたnonceが古いまま配られ続け、
+ * 24時間で失効した後は全員の送信が失敗する。JS側がこれを呼んで取り直せるようにする。
+ * ※未ログイン用のnonceは元々ページを開けば誰でも取得できるため、公開しても強度は変わらない。
+ */
+add_action('wp_ajax_fudosan_satei_nonce', 'fs_ajax_nonce');
+add_action('wp_ajax_nopriv_fudosan_satei_nonce', 'fs_ajax_nonce');
+function fs_ajax_nonce() {
+    // このレスポンスがキャッシュされると意味がないので、明示的にキャッシュを禁止する
+    if (!headers_sent()) {
+        header('Cache-Control: no-cache, no-store, must-revalidate, max-age=0');
+        header('Pragma: no-cache');
+    }
+    wp_send_json(array('nonce' => wp_create_nonce('fudosan_satei')));
+}
+
 add_action('wp_ajax_fudosan_satei', 'fs_ajax');
 add_action('wp_ajax_nopriv_fudosan_satei', 'fs_ajax');
 function fs_ajax() {
@@ -1691,6 +1708,25 @@ function fs_shortcode($atts = array()) {
   var TARGET = <?php echo wp_json_encode($target); ?>;
   var PREFILL = <?php echo wp_json_encode($prefill); ?>;
 
+  /* ★引き継ぎ値はURLから読み直す。
+     サーバー側で埋め込んだ値は、ページキャッシュ（キャッシュ系プラグインやCDN）が効くと
+     「別の人が開いたときの値」が焼き込まれたまま配られてしまう。
+     URLから読めば、キャッシュされたHTMLでも常にその人の値になる。 */
+  (function(){
+    try {
+      var q = new URLSearchParams(window.location.search);
+      var MAP = { ptype:'fs_ptype', pref:'fs_pref', city:'fs_city',
+                  purpose:'fs_purpose', area:'fs_area', build_year:'fs_build_year' };
+      var fromUrl = {}, found = false;
+      Object.keys(MAP).forEach(function(k){
+        var v = q.get(MAP[k]);
+        if (v !== null && v !== '') { fromUrl[k] = v; found = true; }
+      });
+      // URLに引き継ぎパラメータがある場合のみ、そちらを正とする
+      if (found) PREFILL = fromUrl;
+    } catch (e) { /* URLSearchParams非対応の古い環境ではサーバー値のまま */ }
+  })();
+
   function init(){
   var wrap = document.getElementById(WRAP_ID);
   if (!wrap || wrap.getAttribute('data-fs-init')) return;
@@ -1818,8 +1854,22 @@ function fs_shortcode($atts = array()) {
     }
     if (district) district.innerHTML = '<option value="">読み込み中…</option>';
     if (cov) cov.textContent = 'この地域の取引事例を確認中…';
-    fetch(AJAX + '?action=fudosan_satei_districts&nonce=' + encodeURIComponent(NONCE) + '&city=' + encodeURIComponent(city.value), { credentials:'same-origin' })
-      .then(function(r){ return r.json(); })
+    function fetchDistricts(retried){
+      return fetch(AJAX + '?action=fudosan_satei_districts&nonce=' + encodeURIComponent(NONCE) + '&city=' + encodeURIComponent(city.value), { credentials:'same-origin' })
+        .then(function(r){
+          if (r.status === 403 && !retried) {   // キャッシュで古いnonceだった場合は取り直す
+            return fetch(AJAX + '?action=fudosan_satei_nonce', { credentials:'same-origin' })
+              .then(function(x){ return x.json(); })
+              .then(function(n){
+                if (!n || !n.nonce) throw new Error('nonce');
+                NONCE = n.nonce;
+                return fetchDistricts(true);
+              });
+          }
+          return r.json();
+        });
+    }
+    fetchDistricts(false)
       .then(function(d){
         if (district) {
           district.innerHTML = '<option value="">指定なし（市区町村全体）</option>' +
@@ -1927,9 +1977,28 @@ function fs_shortcode($atts = array()) {
     fd.append('nonce', NONCE);
     fd.append('fs_elapsed', String(Date.now() - LOADED_AT));   // 表示から送信までの経過ms（ボット判定）
 
-    fetch(AJAX, { method:'POST', body: fd, credentials:'same-origin' })
-      .then(function(r){ return r.json(); })
+    /* ページキャッシュで古いnonceが配られていると 403 になる。
+       その場合だけ新しいnonceを取り直して1回だけ送り直す（お客様には気づかせない）。 */
+    function send(retried){
+      fd.set('nonce', NONCE);
+      return fetch(AJAX, { method:'POST', body: fd, credentials:'same-origin' })
+        .then(function(r){
+          if (r.status === 403 && !retried) {
+            return fetch(AJAX + '?action=fudosan_satei_nonce', { credentials:'same-origin' })
+              .then(function(x){ return x.json(); })
+              .then(function(n){
+                if (!n || !n.nonce) throw new Error('nonce');
+                NONCE = n.nonce;
+                return send(true);
+              });
+          }
+          return r.json();
+        });
+    }
+
+    send(false)
       .then(function(d){
+        if (!d) return;
         btn.disabled = false; btn.textContent = '無料で査定結果を受け取る';
         if (d.errors) { errBox.innerHTML = d.errors.map(function(x){return '<div class="fs-err">'+esc(x)+'</div>';}).join(''); return; }
         renderResult(d);
