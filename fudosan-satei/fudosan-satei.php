@@ -2,7 +2,7 @@
 /**
  * Plugin Name: かんたん不動産AI査定
  * Description: 匿名の不動産価格査定フォーム。国交省「不動産情報ライブラリ」の実成約事例から参考価格レンジを算出し、結果をメール送信＋リード保存。ショートコード [fudosan_satei] をページに貼るだけ。
- * Version: 1.18.0
+ * Version: 1.18.1
  * Author: (運営者)
  * License: GPLv2 or later
  * Text Domain: fudosan-satei
@@ -14,7 +14,7 @@
 
 if (!defined('ABSPATH')) exit; // 直接アクセス禁止
 
-define('FS_VER', '1.18.0');
+define('FS_VER', '1.18.1');
 define('FS_OPT', 'fudosan_satei_options');
 define('FS_ENDPOINT', 'https://www.reinfolib.mlit.go.jp/ex-api/external/XIT001');
 
@@ -1576,8 +1576,8 @@ function fs_shortcode($atts = array()) {
     <form class="fs-form" id="fs-form">
       <?php /* ボット対策。人には見えず、自動入力ツールだけが埋める欄 */ ?>
       <div class="fs-hp" aria-hidden="true">
-        <label for="fs-website">ウェブサイト（入力しないでください）</label>
-        <input type="text" name="fs_website" id="fs-website" tabindex="-1" autocomplete="off">
+        <label for="<?php echo esc_attr($uid . '-website'); ?>">ウェブサイト（入力しないでください）</label>
+        <input type="text" name="fs_website" id="<?php echo esc_attr($uid . '-website'); ?>" tabindex="-1" autocomplete="off">
       </div>
 <?php if ($show_purpose): ?>
       <div class="fs-section">ご利用目的</div>
@@ -1671,14 +1671,14 @@ function fs_shortcode($atts = array()) {
       </div>
 
       <div class="fs-check">
-        <input type="checkbox" name="agree" id="fs-agree" value="1" required>
-        <label for="fs-agree"><?php echo $agree_label; ?></label>
+        <input type="checkbox" name="agree" id="<?php echo esc_attr($uid . '-agree'); ?>" value="1" required>
+        <label for="<?php echo esc_attr($uid . '-agree'); ?>"><?php echo $agree_label; ?></label>
       </div>
 <?php endif; ?>
 <?php if ($show_marketing): ?>
       <div class="fs-check">
-        <input type="checkbox" name="marketing" id="fs-mkt" value="1">
-        <label for="fs-mkt">売却に関するご提案・お役立ち情報のメール受け取りを希望します（任意）</label>
+        <input type="checkbox" name="marketing" id="<?php echo esc_attr($uid . '-mkt'); ?>" value="1">
+        <label for="<?php echo esc_attr($uid . '-mkt'); ?>">売却に関するご提案・お役立ち情報のメール受け取りを希望します（任意）</label>
       </div>
 <?php endif; ?>
 
