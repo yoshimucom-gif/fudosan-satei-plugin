@@ -2,7 +2,7 @@
 /**
  * Plugin Name: かんたん不動産AI査定
  * Description: 匿名の不動産価格査定フォーム。国交省「不動産情報ライブラリ」の実成約事例から参考価格レンジを算出し、結果をメール送信＋リード保存。ショートコード [fudosan_satei] をページに貼るだけ。
- * Version: 1.19.0
+ * Version: 1.19.1
  * Author: (運営者)
  * License: GPLv2 or later
  * Text Domain: fudosan-satei
@@ -14,7 +14,7 @@
 
 if (!defined('ABSPATH')) exit; // 直接アクセス禁止
 
-define('FS_VER', '1.19.0');
+define('FS_VER', '1.19.1');
 define('FS_OPT', 'fudosan_satei_options');
 define('FS_ENDPOINT', 'https://www.reinfolib.mlit.go.jp/ex-api/external/XIT001');
 
@@ -1363,29 +1363,6 @@ function fs_shortcode($atts = array()) {
     $ajax   = admin_url('admin-ajax.php');
     $year   = intval(date('Y'));
 
-    // ステップ1から引き継いだ値（?fs_ptype=&fs_pref=&fs_city=&fs_purpose=&fs_area=&fs_build_year=）を検証
-    $g = function ($k) { return isset($_GET[$k]) ? sanitize_text_field(wp_unslash($_GET[$k])) : ''; };
-    $prefill = array(
-        'ptype'      => $g('fs_ptype'),
-        'pref'       => $g('fs_pref'),
-        'city'       => $g('fs_city'),
-        'purpose'    => $g('fs_purpose'),
-        'area'       => $g('fs_area'),
-        'build_year' => $g('fs_build_year'),
-    );
-    if (!isset($GLOBALS['FS_PTYPE_MAP'][$prefill['ptype']])) $prefill['ptype'] = '';
-    if (!isset($prefs[$prefill['pref']])) { $prefill['pref'] = ''; $prefill['city'] = ''; }
-    if ($prefill['city'] !== '') {                                   // 市区町村コードが都道府県に属するか
-        $ok = false;
-        foreach (($cities[$prefill['pref']] ?? array()) as $c) { if ($c[0] === $prefill['city']) { $ok = true; break; } }
-        if (!$ok) $prefill['city'] = '';
-    }
-    if ($prefill['purpose'] !== '' && !in_array($prefill['purpose'], fs_purposes(), true)) $prefill['purpose'] = '';
-    if ($prefill['area'] !== '' && (!is_numeric($prefill['area']) || $prefill['area'] <= 0 || $prefill['area'] > 100000)) $prefill['area'] = '';
-    if ($prefill['build_year'] !== '') {
-        $by = intval($prefill['build_year']);
-        $prefill['build_year'] = ($by >= 1950 && $by <= $year) ? (string)$by : '';
-    }
 
     // 入力ガイド（必須→✓、次の欄を光らせる）の対象
     if ($teaser) {
@@ -1735,25 +1712,22 @@ function fs_shortcode($atts = array()) {
   var WRAP_ID = <?php echo wp_json_encode($uid); ?>;
   var TEASER = <?php echo $teaser ? 'true' : 'false'; ?>;
   var TARGET = <?php echo wp_json_encode($target); ?>;
-  var PREFILL = <?php echo wp_json_encode($prefill); ?>;
-
-  /* ★引き継ぎ値はURLから読み直す。
-     サーバー側で埋め込んだ値は、ページキャッシュ（キャッシュ系プラグインやCDN）が効くと
-     「別の人が開いたときの値」が焼き込まれたまま配られてしまう。
-     URLから読めば、キャッシュされたHTMLでも常にその人の値になる。 */
+  /* ★引き継ぎ値は「URLからだけ」読む。サーバー側の値は一切使わない。
+     引き継ぎ値はもともとURLのクエリ由来なので、URLから読めば結果は同じ。
+     一方サーバー側の値をHTMLに焼き込むと、ページキャッシュ（キャッシュ系プラグインやCDN）が
+     効いたときに「最初に開いた人の地域」が全員に配られてしまう。
+     キャッシュがクエリを落とす設定だと、URLに何も無いのに他人の値だけが残る状態になる。 */
+  var PREFILL = {};
   (function(){
     try {
       var q = new URLSearchParams(window.location.search);
       var MAP = { ptype:'fs_ptype', pref:'fs_pref', city:'fs_city',
                   purpose:'fs_purpose', area:'fs_area', build_year:'fs_build_year' };
-      var fromUrl = {}, found = false;
       Object.keys(MAP).forEach(function(k){
         var v = q.get(MAP[k]);
-        if (v !== null && v !== '') { fromUrl[k] = v; found = true; }
+        if (v !== null && v !== '') PREFILL[k] = v;
       });
-      // URLに引き継ぎパラメータがある場合のみ、そちらを正とする
-      if (found) PREFILL = fromUrl;
-    } catch (e) { /* URLSearchParams非対応の古い環境ではサーバー値のまま */ }
+    } catch (e) { /* 取得できなければ引き継ぎ無しとして扱う（他人の値を使うより安全） */ }
   })();
 
   function init(){
