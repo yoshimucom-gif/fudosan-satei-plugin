@@ -2,7 +2,7 @@
 /**
  * Plugin Name: かんたん不動産AI査定
  * Description: 匿名の不動産価格査定フォーム。国交省「不動産情報ライブラリ」の実成約事例から参考価格レンジを算出し、結果をメール送信＋リード保存。ショートコード [fudosan_satei] をページに貼るだけ。
- * Version: 1.20.0
+ * Version: 1.20.1
  * Author: (運営者)
  * License: GPLv2 or later
  * Text Domain: fudosan-satei
@@ -14,7 +14,7 @@
 
 if (!defined('ABSPATH')) exit; // 直接アクセス禁止
 
-define('FS_VER', '1.20.0');
+define('FS_VER', '1.20.1');
 define('FS_OPT', 'fudosan_satei_options');
 define('FS_ENDPOINT', 'https://www.reinfolib.mlit.go.jp/ex-api/external/XIT001');
 
@@ -325,8 +325,10 @@ function fs_area_prefs() {
 /* 査定書作成の案内メールを送る（ONのときだけ／査定結果とは別の1通）。$headers は差出人設定を流用 */
 function fs_maybe_send_guide($email, $headers) {
     if (fs_opt('guide_on', '') !== '1') return;      // 既定OFF。設定でONにしたサイトだけ送る
+    $site = fs_opt('site_name', 'AI査定');
     $subject = fs_opt('guide_subject', '');
-    if (trim($subject) === '') $subject = '【' . fs_opt('site_name', 'AI査定') . '】査定書の作成も承っております';
+    if (trim($subject) === '') $subject = '【' . $site . '】査定書の作成も承っております';
+    else $subject = strtr($subject, array('{site_name}' => $site));   // 件名でも {site_name} を使えるように
     wp_mail($email, $subject, fs_guide_body(), $headers);
 }
 
@@ -359,6 +361,9 @@ function fs_guide_body() {
         $tmpl = preg_replace('/^.*\{guide_link\}.*\R?/m', '', $tmpl);
         $tmpl = preg_replace('/^.*\{guide_url\}.*\R?/m', '', $tmpl);
     }
+    // 運営者名・連絡先が未設定なら、そのタグを含む行ごと落とす（「担当：」だけの空行を残さない）
+    if (fs_opt('operator_name', '') === '')    $tmpl = preg_replace('/^.*\{operator_name\}.*\R?/m', '', $tmpl);
+    if (fs_opt('operator_contact', '') === '') $tmpl = preg_replace('/^.*\{operator_contact\}.*\R?/m', '', $tmpl);
     $body = strtr($tmpl, $repl);
     $body = preg_replace("/\n{3,}/", "\n\n", $body);   // 空行が3つ以上続いたら2つに詰める
     return rtrim($body) . "\n";
@@ -467,7 +472,7 @@ function fs_settings_page() {
                     <p class="description">空欄で初期件名（【サイト名】査定結果のお知らせ）。</p>
                 </td></tr>
                 <tr><th>本文</th><td>
-                    <textarea name="<?php echo FS_OPT; ?>[mail_body]" rows="22" style="width:100%;max-width:760px;font-family:monospace;font-size:13px"><?php echo esc_textarea(fs_opt('mail_body') ?: fs_default_mail_body()); ?></textarea>
+                    <textarea name="<?php echo FS_OPT; ?>[mail_body]" rows="22" style="width:100%;max-width:760px;font-family:monospace;font-size:13px" placeholder="<?php echo esc_attr(fs_default_mail_body()); ?>"><?php echo esc_textarea(fs_opt('mail_body')); ?></textarea>
                     <p class="description">
                         空欄にして保存すると初期文面に戻ります。使える差し込みタグ：<br>
                         <code>{site_name}</code> <code>{property_details}</code>（物件情報のまとまり） <code>{price_low}</code> <code>{price_high}</code> <code>{price_mid}</code> <code>{reason}</code> <code>{ptype}</code> <code>{pref}</code> <code>{city}</code> <code>{district}</code> <code>{area}</code> <code>{floor_plan}</code> <code>{build_year}</code> <code>{station}</code> <code>{purpose}</code> <code>{operator_name}</code> <code>{operator_contact}</code>
@@ -499,7 +504,7 @@ function fs_settings_page() {
                     <p class="description">空欄で初期件名。</p>
                 </td></tr>
                 <tr><th>案内メールの本文</th><td>
-                    <textarea name="<?php echo FS_OPT; ?>[guide_body]" rows="14" style="width:100%;max-width:760px;font-family:monospace;font-size:13px"><?php echo esc_textarea(fs_opt('guide_body') ?: fs_default_guide_body()); ?></textarea>
+                    <textarea name="<?php echo FS_OPT; ?>[guide_body]" rows="14" style="width:100%;max-width:760px;font-family:monospace;font-size:13px" placeholder="<?php echo esc_attr(fs_default_guide_body()); ?>"><?php echo esc_textarea(fs_opt('guide_body')); ?></textarea>
                     <p class="description">空欄にして保存すると初期文面に戻ります。使える差し込みタグ：<code>{site_name}</code> <code>{guide_link}</code>（「▼査定書の作成はこちらから」＋URLをまとめて挿入。URL未設定なら自動で省略） <code>{guide_url}</code>（URLのみ） <code>{operator_name}</code> <code>{operator_contact}</code></p>
                 </td></tr>
             </table>
@@ -914,7 +919,12 @@ function fs_fetch_records($city, $year, $quarter) {
 }
 
 function fs_fetch_recent($city, $latest_year, $quarters_back = 8) {
-    $ck = 'fs_recs_' . $city . '_' . $latest_year . '_' . $quarters_back;
+    /* キャッシュキーに「モード（mock/live）＋APIキー」を含める。
+       これが無いと、テストモードで焼いたダミー値を、本番APIへ切り替えた後も
+       12時間そのまま配信し続けてしまう（＝ありもしない相場を提示＝景表法リスク）。
+       キーを変えたり本番へ切り替えれば、自動的に別キーになり古い値を引かない。 */
+    $mode = fs_use_mock() ? 'mock' : ('live_' . substr(md5(fs_opt('api_key')), 0, 8));
+    $ck = 'fs_recs_' . $mode . '_' . $city . '_' . $latest_year . '_' . $quarters_back;
     $cached = get_transient($ck);
     if (is_array($cached)) return $cached;
     $recs = array(); $y = $latest_year; $q = 4;
