@@ -1,6 +1,6 @@
 {
   "name": "かんたん不動産AI査定",
-  "version": "1.19.1",
+  "version": "1.20.0",
   "download_url": "https://raw.githubusercontent.com/yoshimucom-gif/fudosan-satei-plugin/main/fudosan-satei.zip",
   "requires": "5.8",
   "tested": "6.7",
@@ -8,6 +8,6 @@
   "author": "ミカタ株式会社",
   "homepage": "https://github.com/yoshimucom-gif/fudosan-satei-plugin",
   "sections": {
-    "changelog": "1.19.1\n・【重要】ステップ1で選んだ地域が別の地域（他の方が開いたときの内容）に変わってしまう問題を、根本から修正しました。引き継ぎの内容をページ内に埋め込むのをやめ、URLからのみ読み取るようにしたため、キャッシュされたページが配信されても他の方の内容が表示されることはありません"
+    "changelog": "1.20.0\n・【新機能】査定結果メールに続けて、「査定書作成」のご案内メールをもう1通お送りできるようにしました。設定→自動返信メールの下部で、送る・送らないの切り替え、案内先URL、件名、本文を設定できます（他サイトでの流用を想定し、既定はオフです）\n・案内メールの本文はカスタマイズでき、案内先URLを未設定にした場合はリンク部分が自動で省略されます\n・テストメール送信時、案内メールがオンであれば案内メールも一緒に届き、実際の見え方を確認できます"
   }
 }

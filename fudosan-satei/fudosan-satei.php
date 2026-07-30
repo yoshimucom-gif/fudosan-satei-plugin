@@ -2,7 +2,7 @@
 /**
  * Plugin Name: かんたん不動産AI査定
  * Description: 匿名の不動産価格査定フォーム。国交省「不動産情報ライブラリ」の実成約事例から参考価格レンジを算出し、結果をメール送信＋リード保存。ショートコード [fudosan_satei] をページに貼るだけ。
- * Version: 1.19.1
+ * Version: 1.20.0
  * Author: (運営者)
  * License: GPLv2 or later
  * Text Domain: fudosan-satei
@@ -14,7 +14,7 @@
 
 if (!defined('ABSPATH')) exit; // 直接アクセス禁止
 
-define('FS_VER', '1.19.1');
+define('FS_VER', '1.20.0');
 define('FS_OPT', 'fudosan_satei_options');
 define('FS_ENDPOINT', 'https://www.reinfolib.mlit.go.jp/ex-api/external/XIT001');
 
@@ -233,6 +233,11 @@ function fs_sanitize_options($in) {
         // 自動返信メール
         'mail_subject'     => sanitize_text_field($in['mail_subject'] ?? ''),
         'mail_body'        => sanitize_textarea_field($in['mail_body'] ?? ''),
+        // 査定書作成の案内メール（査定結果とは別にもう1通送る。他サイト流用のためON/OFF可）
+        'guide_on'         => !empty($in['guide_on']) ? '1' : '',
+        'guide_subject'    => sanitize_text_field($in['guide_subject'] ?? ''),
+        'guide_body'       => sanitize_textarea_field($in['guide_body'] ?? ''),
+        'guide_url'        => esc_url_raw($in['guide_url'] ?? ''),
         // 装飾（色）
         'color_brand'      => sanitize_hex_color($in['color_brand'] ?? '')    ?: '#1f6feb',
         'color_btn_text'   => sanitize_hex_color($in['color_btn_text'] ?? '') ?: '#ffffff',
@@ -315,6 +320,48 @@ function fs_area_prefs() {
     $out = array();
     foreach ($all as $code => $name) if (in_array((string)$code, $sel, true)) $out[(string)$code] = $name;
     return $out ?: $all;
+}
+
+/* 査定書作成の案内メールを送る（ONのときだけ／査定結果とは別の1通）。$headers は差出人設定を流用 */
+function fs_maybe_send_guide($email, $headers) {
+    if (fs_opt('guide_on', '') !== '1') return;      // 既定OFF。設定でONにしたサイトだけ送る
+    $subject = fs_opt('guide_subject', '');
+    if (trim($subject) === '') $subject = '【' . fs_opt('site_name', 'AI査定') . '】査定書の作成も承っております';
+    wp_mail($email, $subject, fs_guide_body(), $headers);
+}
+
+/* 査定書作成の案内メールの初期本文（差し込みタグ付き） */
+function fs_default_guide_body() {
+    return "この度は{site_name}をご利用いただきありがとうございます。\n\n"
+        . "先ほどお送りした参考価格に加えて、より詳しい資料として\n"
+        . "「査定書」の作成を無料で承っております。\n\n"
+        . "査定書では、価格の根拠や周辺の取引動向などをまとめてお渡しします。\n"
+        . "ご売却をご検討の際の資料としてお役立てください。\n\n"
+        . "{guide_link}\n\n"
+        . "※ご不要の場合は、このメールは破棄していただいて結構です。";
+}
+
+/* 査定書作成の案内メール本文を組み立てる */
+function fs_guide_body() {
+    $tmpl = fs_opt('guide_body', '');
+    if (trim($tmpl) === '') $tmpl = fs_default_guide_body();
+    $url = fs_opt('guide_url', '');
+    // URLがあれば「見出し＋URL」を、無ければ何も出さない（{guide_link} の行ごと消す）
+    $link = ($url !== '') ? "▼ 査定書の作成はこちらから\n" . $url : '';
+    $repl = array(
+        '{site_name}'        => fs_opt('site_name', 'AI査定'),
+        '{guide_link}'       => $link,
+        '{guide_url}'        => $url,   // 旧タグ後方互換
+        '{operator_name}'    => fs_opt('operator_name', ''),
+        '{operator_contact}' => fs_opt('operator_contact', ''),
+    );
+    if ($link === '') {   // URL未設定：リンク行を丸ごと落として空行を残さない
+        $tmpl = preg_replace('/^.*\{guide_link\}.*\R?/m', '', $tmpl);
+        $tmpl = preg_replace('/^.*\{guide_url\}.*\R?/m', '', $tmpl);
+    }
+    $body = strtr($tmpl, $repl);
+    $body = preg_replace("/\n{3,}/", "\n\n", $body);   // 空行が3つ以上続いたら2つに詰める
+    return rtrim($body) . "\n";
 }
 
 /* 自動返信メールの初期本文（差し込みタグ付き） */
@@ -434,6 +481,30 @@ function fs_settings_page() {
                         ご自身で同じ趣旨の文面を書かれた場合は、二重にならないよう自動付加を行いません。
                     </p>
                 </td></tr>
+            </table>
+
+            <h3 style="margin-top:32px">査定書作成の案内メール</h3>
+            <p class="description">査定結果メールとは<strong>別に、もう1通「査定書作成」のご案内を送ります。</strong>他サイトでも流用できるよう、送る・送らないを選べます。</p>
+            <table class="form-table">
+                <tr><th>案内メールを送る</th><td>
+                    <label><input type="checkbox" name="<?php echo FS_OPT; ?>[guide_on]" value="1" <?php checked(fs_opt('guide_on'), '1'); ?>> 査定結果に続けて、査定書作成の案内メールを送信する</label>
+                    <p class="description">オフのサイトでは案内メールは一切送られません（既定はオフ）。</p>
+                </td></tr>
+                <tr><th>案内先URL</th><td>
+                    <input type="url" name="<?php echo FS_OPT; ?>[guide_url]" value="<?php echo esc_attr(fs_opt('guide_url')); ?>" size="60" placeholder="https://example.com/satei-sho/">
+                    <p class="description">査定書作成フォームのページURL。本文の <code>{guide_url}</code> に差し込まれます。<strong>空欄の場合、本文中のURL行は自動で省かれます。</strong></p>
+                </td></tr>
+                <tr><th>案内メールの件名</th><td>
+                    <input type="text" name="<?php echo FS_OPT; ?>[guide_subject]" value="<?php echo esc_attr(fs_opt('guide_subject')); ?>" size="60" placeholder="【{site_name}】査定書の作成も承っております">
+                    <p class="description">空欄で初期件名。</p>
+                </td></tr>
+                <tr><th>案内メールの本文</th><td>
+                    <textarea name="<?php echo FS_OPT; ?>[guide_body]" rows="14" style="width:100%;max-width:760px;font-family:monospace;font-size:13px"><?php echo esc_textarea(fs_opt('guide_body') ?: fs_default_guide_body()); ?></textarea>
+                    <p class="description">空欄にして保存すると初期文面に戻ります。使える差し込みタグ：<code>{site_name}</code> <code>{guide_link}</code>（「▼査定書の作成はこちらから」＋URLをまとめて挿入。URL未設定なら自動で省略） <code>{guide_url}</code>（URLのみ） <code>{operator_name}</code> <code>{operator_contact}</code></p>
+                </td></tr>
+            </table>
+
+            <table class="form-table">
                 <tr><th>到達確認</th><td>
                     <a href="<?php echo esc_url(wp_nonce_url(admin_url('admin-post.php?action=fs_test_mail'), 'fs_test_mail')); ?>" class="button">テストメールを自分宛に送信</a>
                     <p class="description">
@@ -1129,6 +1200,7 @@ function fs_test_mail() {
     $from = fs_opt('from_email'); $site = fs_opt('site_name', 'AI査定');
     if ($from) $headers[] = 'From: ' . $site . ' <' . $from . '>';
     $ok = wp_mail($to, '[テスト] ' . fs_mail_subject(), fs_mail_body($ctx), $headers);
+    fs_maybe_send_guide($to, $headers);   // 案内メールがONなら、実際の見え方も確認できるよう一緒に送る
     wp_safe_redirect(admin_url('admin.php?page=fudosan-satei&testmail=' . ($ok ? '1' : '0') . '&to=' . rawurlencode($to)));
     exit;
 }
@@ -1286,6 +1358,7 @@ function fs_ajax() {
         );
         $imail_ok = wp_mail($email, '【' . $isite . '】お申し込みを受け付けました',
             fs_insufficient_mail_body($ictx, $res['reason']), $iheaders);
+        fs_maybe_send_guide($email, $iheaders);   // 査定書作成の案内（ONのときのみ）
         wp_send_json(array('ok' => false, 'insufficient' => true, 'reason' => $res['reason'],
             'email' => $email, 'mail_ok' => (bool)$imail_ok));
     }
@@ -1302,6 +1375,7 @@ function fs_ajax() {
     $from = fs_opt('from_email'); $site = fs_opt('site_name', 'AI査定');
     if ($from) $headers[] = 'From: ' . $site . ' <' . $from . '>';
     $mail_ok = wp_mail($email, fs_mail_subject(), fs_mail_body($ctx), $headers);
+    fs_maybe_send_guide($email, $headers);   // 査定書作成の案内（ONのときのみ）
 
     wp_send_json(array(
         'ok' => true, 'mail_ok' => (bool)$mail_ok, 'email' => $email,
