@@ -1,6 +1,6 @@
 {
   "name": "かんたん不動産AI査定",
-  "version": "1.20.1",
+  "version": "1.20.2",
   "download_url": "https://raw.githubusercontent.com/yoshimucom-gif/fudosan-satei-plugin/main/fudosan-satei.zip",
   "requires": "5.8",
   "tested": "6.7",
@@ -8,6 +8,6 @@
   "author": "ミカタ株式会社",
   "homepage": "https://github.com/yoshimucom-gif/fudosan-satei-plugin",
   "sections": {
-    "changelog": "1.20.1\n・テストモードから本番のAPIキーに切り替えた直後に、一時的に古いテスト用のダミー価格が表示されることがある不具合を修正しました\n・査定書作成の案内メールで、件名にも {site_name}（サイト名）を差し込めるようにしました\n・案内メールで運営者名・連絡先を未設定にした場合、その行が自動で省かれるようにしました\n・自動返信メールの本文欄を空にして保存すると、確実に初期の文面に戻るよう改善しました（初期文面は入力欄に薄く表示されます）"
+    "changelog": "1.20.2\n・「売却に関するご提案・お役立ち情報メールの受け取り希望」チェック欄を既定で非表示にしました（匿名査定は営業を受けたくない方向けのため。必要な場合は設定→表示項目でオンにできます）"
   }
 }

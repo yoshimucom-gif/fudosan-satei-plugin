@@ -2,7 +2,7 @@
 /**
  * Plugin Name: かんたん不動産AI査定
  * Description: 匿名の不動産価格査定フォーム。国交省「不動産情報ライブラリ」の実成約事例から参考価格レンジを算出し、結果をメール送信＋リード保存。ショートコード [fudosan_satei] をページに貼るだけ。
- * Version: 1.20.1
+ * Version: 1.20.2
  * Author: (運営者)
  * License: GPLv2 or later
  * Text Domain: fudosan-satei
@@ -14,7 +14,7 @@
 
 if (!defined('ABSPATH')) exit; // 直接アクセス禁止
 
-define('FS_VER', '1.20.1');
+define('FS_VER', '1.20.2');
 define('FS_OPT', 'fudosan_satei_options');
 define('FS_ENDPOINT', 'https://www.reinfolib.mlit.go.jp/ex-api/external/XIT001');
 
@@ -307,7 +307,11 @@ function fs_notify_on() {
 
 function fs_show($key) {
     $o = get_option(FS_OPT, array());
-    if (!is_array($o) || !array_key_exists('show_' . $key, $o)) return true; // 未設定=表示
+    if (!is_array($o) || !array_key_exists('show_' . $key, $o)) {
+        // 未設定のときの既定。営業案内メールの希望欄だけ既定オフ
+        //（匿名査定は「営業を受けたくない方」向けのため。必要なサイトは管理画面でON）
+        return $key !== 'marketing';
+    }
     return $o['show_' . $key] === '1';
 }
 
@@ -452,7 +456,7 @@ function fs_settings_page() {
                 <label><input type="checkbox" name="<?php echo FS_OPT; ?>[show_floor_plan]" value="1" <?php checked(fs_show('floor_plan')); ?>> 間取り</label><br>
                 <label><input type="checkbox" name="<?php echo FS_OPT; ?>[show_build_year]" value="1" <?php checked(fs_show('build_year')); ?>> 築年</label><br>
                 <label><input type="checkbox" name="<?php echo FS_OPT; ?>[show_purpose]" value="1" <?php checked(fs_show('purpose')); ?>> 利用目的（売却検討・相続・離婚など）</label><br>
-                <label><input type="checkbox" name="<?php echo FS_OPT; ?>[show_marketing]" value="1" <?php checked(fs_show('marketing')); ?>> 「営業案内メールを希望」チェック欄</label>
+                <label><input type="checkbox" name="<?php echo FS_OPT; ?>[show_marketing]" value="1" <?php checked(fs_show('marketing')); ?>> 「営業案内メールを希望」チェック欄（既定オフ）</label>
                 <p class="description">チェックを外した項目はフォームに表示されません。<br>※ 種別・都道府県・市区町村・面積・メール・同意チェックは常に表示されます。</p>
             </td></tr></table>
 
