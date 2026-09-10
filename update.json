@@ -1,6 +1,6 @@
 {
   "name": "かんたん不動産AI査定",
-  "version": "1.20.2",
+  "version": "1.21.0",
   "download_url": "https://raw.githubusercontent.com/yoshimucom-gif/fudosan-satei-plugin/main/fudosan-satei.zip",
   "requires": "5.8",
   "tested": "6.7",
@@ -8,6 +8,6 @@
   "author": "ミカタ株式会社",
   "homepage": "https://github.com/yoshimucom-gif/fudosan-satei-plugin",
   "sections": {
-    "changelog": "1.20.2\n・「売却に関するご提案・お役立ち情報メールの受け取り希望」チェック欄を既定で非表示にしました（匿名査定は営業を受けたくない方向けのため。必要な場合は設定→表示項目でオンにできます）"
+    "changelog": "1.21.0\n・テストメールの宛先を指定できるように（空欄なら自分宛） ・査定書作成の案内メールを査定結果メールの60秒後に送るように（先に届いてしまう問題の修正。設定で秒数変更可・0で同時送信）"
   }
 }

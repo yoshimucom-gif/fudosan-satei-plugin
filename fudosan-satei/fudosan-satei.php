@@ -2,7 +2,7 @@
 /**
  * Plugin Name: かんたん不動産AI査定
  * Description: 匿名の不動産価格査定フォーム。国交省「不動産情報ライブラリ」の実成約事例から参考価格レンジを算出し、結果をメール送信＋リード保存。ショートコード [fudosan_satei] をページに貼るだけ。
- * Version: 1.20.2
+ * Version: 1.21.0
  * Author: (運営者)
  * License: GPLv2 or later
  * Text Domain: fudosan-satei
@@ -14,7 +14,7 @@
 
 if (!defined('ABSPATH')) exit; // 直接アクセス禁止
 
-define('FS_VER', '1.20.2');
+define('FS_VER', '1.21.0');
 define('FS_OPT', 'fudosan_satei_options');
 define('FS_ENDPOINT', 'https://www.reinfolib.mlit.go.jp/ex-api/external/XIT001');
 
@@ -238,6 +238,7 @@ function fs_sanitize_options($in) {
         'guide_subject'    => sanitize_text_field($in['guide_subject'] ?? ''),
         'guide_body'       => sanitize_textarea_field($in['guide_body'] ?? ''),
         'guide_url'        => esc_url_raw($in['guide_url'] ?? ''),
+        'guide_delay'      => fs_sanitize_guide_delay($in['guide_delay'] ?? ''),
         // 装飾（色）
         'color_brand'      => sanitize_hex_color($in['color_brand'] ?? '')    ?: '#1f6feb',
         'color_btn_text'   => sanitize_hex_color($in['color_btn_text'] ?? '') ?: '#ffffff',
@@ -326,9 +327,47 @@ function fs_area_prefs() {
     return $out ?: $all;
 }
 
-/* 査定書作成の案内メールを送る（ONのときだけ／査定結果とは別の1通）。$headers は差出人設定を流用 */
+/* 案内メールの遅延秒数。未設定=60秒、0=同時送信、上限1時間 */
+function fs_sanitize_guide_delay($v) {
+    $v = trim((string) $v);
+    if (!is_numeric($v)) return '60';
+    return (string) max(0, min(3600, (int) $v));
+}
+
+function fs_guide_delay() {
+    $v = fs_opt('guide_delay', '');
+    if ($v === '' || !is_numeric($v)) return 60;
+    return max(0, min(3600, (int) $v));
+}
+
+/* 査定書作成の案内メールを送る（ONのときだけ／査定結果とは別の1通）。
+ * 査定結果メールと同時に wp_mail すると着順が保証されず、案内のほうが先に届くことが
+ * あるため、既定で60秒遅らせて WP-Cron で送る（設定で秒数変更可・0なら即時）。
+ * ※実際の送信は指定時刻を過ぎた後の最初のサイトアクセス時。早まることはない。 */
 function fs_maybe_send_guide($email, $headers) {
     if (fs_opt('guide_on', '') !== '1') return;      // 既定OFF。設定でONにしたサイトだけ送る
+    $delay = fs_guide_delay();
+    if ($delay > 0) {
+        // 第2引数は重複よけ。wp_schedule_single_event は同一引数のイベントを
+        // 10分以内に重ねて登録しないため、毎回ユニークな値を混ぜる
+        wp_schedule_single_event(time() + $delay, 'fs_send_guide_event',
+            array($email, uniqid('', true)));
+        return;
+    }
+    fs_send_guide_now($email, $headers);
+}
+
+add_action('fs_send_guide_event', 'fs_send_guide_event', 10, 2);
+function fs_send_guide_event($email, $dedupe = '') {
+    // cron実行時はヘッダを設定から組み直す（登録時の値を持ち回らない）
+    $headers = array('Content-Type: text/plain; charset=UTF-8');
+    $from = fs_opt('from_email'); $site = fs_opt('site_name', 'AI査定');
+    if ($from) $headers[] = 'From: ' . $site . ' <' . $from . '>';
+    fs_send_guide_now($email, $headers);
+}
+
+/* 案内メールを実際に送る（即時）。$headers は差出人設定を流用 */
+function fs_send_guide_now($email, $headers) {
     $site = fs_opt('site_name', 'AI査定');
     $subject = fs_opt('guide_subject', '');
     if (trim($subject) === '') $subject = '【' . $site . '】査定書の作成も承っております';
@@ -404,7 +443,7 @@ function fs_settings_page() {
         <h1>かんたん不動産AI査定 設定</h1>
         <?php if (isset($_GET['testmail'])) {
             $tm_ok = ($_GET['testmail'] === '1');
-            $tm_to = isset($_GET['to']) ? sanitize_email(wp_unslash($_GET['to'])) : '';
+            $tm_to = (string) get_transient('fs_testmail_to_' . get_current_user_id());
             echo '<div class="notice notice-' . ($tm_ok ? 'success' : 'error') . '"><p>' .
                 ($tm_ok
                     ? 'テストメールを <strong>' . esc_html($tm_to) . '</strong> に送信しました。届かない場合は<strong>迷惑メールフォルダ</strong>も確認してください（届かない＝SPF/DKIM未設定の可能性大）。'
@@ -499,6 +538,13 @@ function fs_settings_page() {
                     <label><input type="checkbox" name="<?php echo FS_OPT; ?>[guide_on]" value="1" <?php checked(fs_opt('guide_on'), '1'); ?>> 査定結果に続けて、査定書作成の案内メールを送信する</label>
                     <p class="description">オフのサイトでは案内メールは一切送られません（既定はオフ）。</p>
                 </td></tr>
+                <tr><th>送信タイミング</th><td>
+                    査定結果メールの <input type="number" name="<?php echo FS_OPT; ?>[guide_delay]" value="<?php echo esc_attr(fs_opt('guide_delay', '60')); ?>" min="0" max="3600" step="1" style="width:90px"> 秒後に送信
+                    <p class="description">
+                        同時に送ると<strong>案内メールのほうが先に届いてしまう</strong>ことがあるため、既定で60秒ずらします（0で同時送信・最大3600秒）。<br>
+                        実際の送信は指定時刻を過ぎた後の最初のサイトアクセス時（WP-Cron）のため、アクセスの少ない時間帯は数分後ろにずれることがあります（先に届くことはありません）。
+                    </p>
+                </td></tr>
                 <tr><th>案内先URL</th><td>
                     <input type="url" name="<?php echo FS_OPT; ?>[guide_url]" value="<?php echo esc_attr(fs_opt('guide_url')); ?>" size="60" placeholder="https://example.com/satei-sho/">
                     <p class="description">査定書作成フォームのページURL。本文の <code>{guide_url}</code> に差し込まれます。<strong>空欄の場合、本文中のURL行は自動で省かれます。</strong></p>
@@ -515,9 +561,13 @@ function fs_settings_page() {
 
             <table class="form-table">
                 <tr><th>到達確認</th><td>
-                    <a href="<?php echo esc_url(wp_nonce_url(admin_url('admin-post.php?action=fs_test_mail'), 'fs_test_mail')); ?>" class="button">テストメールを自分宛に送信</a>
+                    <input type="email" id="fs-testto" value="<?php echo esc_attr(wp_get_current_user()->user_email); ?>" size="34" placeholder="test@example.com">
+                    <button type="button" class="button" id="fs-testsend"
+                        data-url="<?php echo esc_url(admin_url('admin-post.php')); ?>"
+                        data-nonce="<?php echo esc_attr(wp_create_nonce('fs_test_mail')); ?>">テストメールを送信</button>
                     <p class="description">
-                        現在の件名・本文テンプレートでサンプルを送ります（保存してから押してください）。<br>
+                        指定した宛先に、現在の件名・本文テンプレートでサンプルを送ります（保存してから押してください）。空欄や無効なアドレスのときは自分宛に送ります。<br>
+                        案内メールがONの場合は案内メールも一緒に届きます（テストでは遅延させずすぐ送ります）。<br>
                         <strong>迷惑メールに入る場合</strong>は「WP Mail SMTP」等でSMTP送信にし、送信ドメインの <code>SPF</code> / <code>DKIM</code> / <code>DMARC</code> を設定してください。
                     </p>
                 </td></tr>
@@ -626,6 +676,27 @@ function fs_settings_page() {
                 panels.forEach(function(p){ p.style.display = (p.getAttribute('data-tab') === name) ? '' : 'none'; });
                 if (save) save.style.display = (name === 'usage') ? 'none' : ''; // 使い方タブでは保存ボタンを隠す
             });
+        });
+
+        // テストメール。宛先をURLに残さないよう、リンクではなくPOSTで送る
+        // （設定フォームの中に form を入れ子にできないので、押した時に組み立てる）
+        var testBtn = document.getElementById('fs-testsend');
+        if (testBtn) testBtn.addEventListener('click', function(){
+            var f = document.createElement('form');
+            f.method = 'post';
+            f.action = testBtn.getAttribute('data-url');
+            var vals = {
+                action: 'fs_test_mail',
+                _wpnonce: testBtn.getAttribute('data-nonce'),
+                to: (document.getElementById('fs-testto') || {}).value || ''
+            };
+            Object.keys(vals).forEach(function(k){
+                var i = document.createElement('input');
+                i.type = 'hidden'; i.name = k; i.value = vals[k];
+                f.appendChild(i);
+            });
+            document.body.appendChild(f);
+            f.submit();
         });
     })();
     </script>
@@ -1199,10 +1270,21 @@ function fs_mail_subject() {
 
 /* テストメール送信（迷惑メール判定・文面の確認用） */
 add_action('admin_post_fs_test_mail', 'fs_test_mail');
+/**
+ * テストメールの宛先。指定があればそこへ、無ければログイン中のユーザー宛。
+ * 壊れた値は黙って捨てて自分宛てに戻す（送信そのものが失敗するより、
+ * 手元に届いて「宛先が違う」と気づける方がよい）。
+ */
+function fs_test_mail_to($posted) {
+    $to = sanitize_email(trim((string) $posted));
+    if ($to === '' || !is_email($to)) $to = wp_get_current_user()->user_email;
+    return $to;
+}
+
 function fs_test_mail() {
     if (!current_user_can('manage_options')) wp_die('権限がありません');
     check_admin_referer('fs_test_mail');
-    $to = wp_get_current_user()->user_email;
+    $to = fs_test_mail_to(isset($_POST['to']) ? wp_unslash($_POST['to']) : '');
     $ctx = array(
         'ptype_label' => '中古マンション', 'pref' => '東京都', 'city' => '渋谷区', 'district' => '恵比寿',
         'area' => 70, 'floor_plan' => '2LDK', 'build_year' => 2015,
@@ -1214,8 +1296,11 @@ function fs_test_mail() {
     $from = fs_opt('from_email'); $site = fs_opt('site_name', 'AI査定');
     if ($from) $headers[] = 'From: ' . $site . ' <' . $from . '>';
     $ok = wp_mail($to, '[テスト] ' . fs_mail_subject(), fs_mail_body($ctx), $headers);
-    fs_maybe_send_guide($to, $headers);   // 案内メールがONなら、実際の見え方も確認できるよう一緒に送る
-    wp_safe_redirect(admin_url('admin.php?page=fudosan-satei&testmail=' . ($ok ? '1' : '0') . '&to=' . rawurlencode($to)));
+    // 案内メールがONなら、実際の見え方も確認できるよう一緒に送る（テストは遅延させない）
+    if (fs_opt('guide_on', '') === '1') fs_send_guide_now($to, $headers);
+    // ★宛先はURLに載せない。ブラウザ履歴やリファラに残るため、結果表示の間だけ控えておく
+    set_transient('fs_testmail_to_' . get_current_user_id(), $to, 60);
+    wp_safe_redirect(admin_url('admin.php?page=fudosan-satei&testmail=' . ($ok ? '1' : '0')));
     exit;
 }
 
