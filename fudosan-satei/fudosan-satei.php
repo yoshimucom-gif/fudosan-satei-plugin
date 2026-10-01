@@ -2,7 +2,7 @@
 /**
  * Plugin Name: かんたん不動産AI査定
  * Description: 匿名の不動産価格査定フォーム。国交省「不動産情報ライブラリ」の実成約事例から参考価格レンジを算出し、結果をメール送信＋リード保存。ショートコード [fudosan_satei] をページに貼るだけ。
- * Version: 1.21.0
+ * Version: 1.22.0
  * Author: (運営者)
  * License: GPLv2 or later
  * Text Domain: fudosan-satei
@@ -14,7 +14,7 @@
 
 if (!defined('ABSPATH')) exit; // 直接アクセス禁止
 
-define('FS_VER', '1.21.0');
+define('FS_VER', '1.22.0');
 define('FS_OPT', 'fudosan_satei_options');
 define('FS_ENDPOINT', 'https://www.reinfolib.mlit.go.jp/ex-api/external/XIT001');
 
@@ -218,6 +218,10 @@ function fs_sanitize_options($in) {
         'operator_address' => sanitize_text_field($in['operator_address'] ?? ''),
         'from_email'       => sanitize_email($in['from_email'] ?? get_option('admin_email')),
         'notify_email'     => sanitize_email($in['notify_email'] ?? ''),
+        // Chatwork通知。トークンは画面に出さないので、空欄で保存されたら今の値を保つ
+        'chatwork_token'   => fs_keep_secret($in['chatwork_token'] ?? '', 'chatwork_token'),
+        'chatwork_room'    => preg_replace('/[^0-9]/', '', (string) ($in['chatwork_room'] ?? '')),
+        'chatwork_toall'   => !empty($in['chatwork_toall']) ? '1' : '',
         'notify_on'        => !empty($in['notify_on']) ? '1' : '',
         'privacy_url'      => esc_url_raw($in['privacy_url'] ?? ''),
         'terms_url'        => esc_url_raw($in['terms_url'] ?? ''),
@@ -441,6 +445,14 @@ function fs_settings_page() {
     ?>
     <div class="wrap">
         <h1>かんたん不動産AI査定 設定</h1>
+        <?php if (isset($_GET['cwtest'])) {
+            $cw_ok = ($_GET['cwtest'] === '1');
+            echo '<div class="notice notice-' . ($cw_ok ? 'success' : 'error') . '"><p>' .
+                ($cw_ok
+                    ? 'Chatworkにテスト投稿を送りました。指定したチャットをご確認ください。'
+                    : 'Chatworkへの投稿に失敗しました：' . esc_html((string) get_option('fs_chatwork_last_error'))) .
+                '</p></div>';
+        } ?>
         <?php if (isset($_GET['testmail'])) {
             $tm_ok = ($_GET['testmail'] === '1');
             $tm_to = (string) get_transient('fs_testmail_to_' . get_current_user_id());
@@ -481,6 +493,44 @@ function fs_settings_page() {
                     <p class="description">査定リードが入ったら、このアドレスに通知します。空欄なら送信元メール（無ければ管理者アドレス）に通知します。<br>通知したくない場合は下の「担当者に通知する」のチェックを外してください。</p></td></tr>
                 <tr><th>リード通知</th><td>
                     <label><input type="checkbox" name="<?php echo FS_OPT; ?>[notify_on]" value="1" <?php checked(fs_notify_on()); ?>> 査定リードが入ったら担当者に通知する</label>
+                </td></tr>
+                <tr><th>Chatwork通知</th><td>
+                    <?php $cw_set = (trim(fs_opt('chatwork_token', '')) !== ''); ?>
+                    <p style="margin:0 0 6px">
+                        <label style="display:inline-block;width:9em">APIトークン</label>
+                        <input type="password" name="<?php echo FS_OPT; ?>[chatwork_token]" value="" size="40" autocomplete="new-password"
+                               placeholder="<?php echo $cw_set ? '設定済み（変更するときだけ入力）' : '未設定'; ?>">
+                    </p>
+                    <p style="margin:0 0 6px">
+                        <label style="display:inline-block;width:9em">ルームID</label>
+                        <input type="text" name="<?php echo FS_OPT; ?>[chatwork_room]" value="<?php echo esc_attr(fs_opt('chatwork_room')); ?>" size="20" placeholder="例：441557145">
+                    </p>
+                    <p style="margin:0 0 8px">
+                        <label><input type="checkbox" name="<?php echo FS_OPT; ?>[chatwork_toall]" value="1" <?php checked(fs_opt('chatwork_toall', '') === '1'); ?>>
+                        ルーム全員に通知音を鳴らす（[toall]を付ける）</label>
+                    </p>
+                    <?php if ($cw_set && trim(fs_opt('chatwork_room', '')) !== ''): ?>
+                    <button type="button" class="button" id="fs-cwtest"
+                        data-url="<?php echo esc_url(admin_url('admin-post.php')); ?>"
+                        data-nonce="<?php echo esc_attr(wp_create_nonce('fs_test_chatwork')); ?>">テスト投稿を送る</button>
+                    <?php endif; ?>
+                    <p class="description">
+                        査定リードが入ったら、メールに加えて<strong>Chatworkにも通知</strong>します。空欄なら通知しません。<br>
+                        上の「リード通知」をオフにしている場合は、Chatworkにも通知しません。<br>
+                        <strong>APIトークンの取り方</strong>：Chatworkにログイン →
+                        右上のご自身の名前 → 「サービス連携」 → 左メニューの「API Token」 →
+                        パスワードを入れて「表示」 → 出てきた文字列をコピーして上の欄に貼り付け。<br>
+                        <strong>ルームIDの調べ方</strong>：通知したいチャットを開いたときのURL
+                        <code>https://www.chatwork.com/#!rid<strong>441557145</strong>-…</code> の
+                        <code>rid</code> の直後の数字です。<br>
+                        <span class="description">※トークンは画面に表示しません。変更するときだけ入力してください（空欄で保存すると今の設定のままになります）。</span>
+                    </p>
+                    <?php $cw_err = get_option('fs_chatwork_last_error'); if ($cw_err): ?>
+                    <p class="description" style="color:#b32d2e">
+                        <strong>直近の通知に失敗しました：</strong><?php echo esc_html($cw_err); ?><br>
+                        APIトークンとルームIDをご確認のうえ、「テスト投稿を送る」でお試しください。
+                    </p>
+                    <?php endif; ?>
                 </td></tr>
                 <tr><th>プライバシーポリシーURL</th><td><input type="url" name="<?php echo FS_OPT; ?>[privacy_url]" value="<?php echo esc_attr(fs_opt('privacy_url')); ?>" size="50"></td></tr>
                 <tr><th>利用規約・免責URL</th><td><input type="url" name="<?php echo FS_OPT; ?>[terms_url]" value="<?php echo esc_attr(fs_opt('terms_url')); ?>" size="50"></td></tr>
@@ -664,6 +714,22 @@ function fs_settings_page() {
     </div>
     <script>
     (function(){
+        // Chatworkのテスト投稿。設定フォームの中に form は置けないので、押した時に組み立てて送る
+        var cwBtn = document.getElementById('fs-cwtest');
+        if (cwBtn) cwBtn.addEventListener('click', function(){
+            var f = document.createElement('form');
+            f.method = 'post';
+            f.action = cwBtn.getAttribute('data-url');
+            var vals = { action: 'fs_test_chatwork', _wpnonce: cwBtn.getAttribute('data-nonce') };
+            Object.keys(vals).forEach(function(k){
+                var i = document.createElement('input');
+                i.type = 'hidden'; i.name = k; i.value = vals[k];
+                f.appendChild(i);
+            });
+            document.body.appendChild(f);
+            f.submit();
+        });
+
         var tabs = document.querySelectorAll('#fs-tabs .nav-tab');
         var panels = document.querySelectorAll('.fs-tabpanel');
         var save = document.getElementById('fs-save');
@@ -1220,6 +1286,122 @@ function fs_insufficient_mail_body($ctx, $reason) {
 }
 
 /* 管理者通知メールの本文（担当者へ）。事例不足で査定できなかったリードにも対応する */
+/**
+ * 秘密の値（APIトークン等）の保存。
+ * 画面には出さない方針なので、空欄で送られてきたら「消す」ではなく「今の値を保つ」。
+ * ※マスクした値（●●●●）を欄に入れてはいけない。そのまま保存されて本物が壊れる。
+ */
+function fs_keep_secret($new, $key) {
+    $new = trim((string) $new);
+    if ($new === '') {
+        $o = get_option(FS_OPT, array());
+        return isset($o[$key]) ? (string) $o[$key] : '';
+    }
+    return sanitize_text_field($new);
+}
+
+/** Chatwork通知が使える状態か（トークンとルームIDの両方がある） */
+function fs_chatwork_ready() {
+    return (trim(fs_opt('chatwork_token', '')) !== '' && trim(fs_opt('chatwork_room', '')) !== '');
+}
+
+/**
+ * Chatworkへ1件投稿する。戻り値: array(成功したか, エラーの説明)
+ *
+ * ★ここで例外を投げない。通知が失敗しても、リードそのものは失わない
+ *   （通知はあとから気づけるが、お客様の情報は二度と戻らない）。
+ */
+function fs_chatwork_post($body) {
+    if (!fs_chatwork_ready()) return array(false, 'APIトークンまたはルームIDが未設定です。');
+    $token = trim(fs_opt('chatwork_token', ''));
+    $room  = trim(fs_opt('chatwork_room', ''));
+
+    $res = wp_remote_post('https://api.chatwork.com/v2/rooms/' . rawurlencode($room) . '/messages', array(
+        'timeout' => 20,
+        'headers' => array(
+            'X-ChatWorkToken' => $token,
+            'Content-Type'    => 'application/x-www-form-urlencoded',
+        ),
+        // self_unread=1 … 自分の投稿も未読にする。見落としを防ぐ
+        'body' => array('body' => $body, 'self_unread' => '1'),
+    ));
+    if (is_wp_error($res)) return array(false, $res->get_error_message());
+
+    $code = (int) wp_remote_retrieve_response_code($res);
+    if ($code < 200 || $code >= 300) {
+        $msg = 'HTTP ' . $code;
+        if ($code === 401) $msg .= '（APIトークンが違います）';
+        if ($code === 403) $msg .= '（このトークンでは、そのルームに投稿できません）';
+        if ($code === 404) $msg .= '（ルームIDが見つかりません）';
+        return array(false, $msg);
+    }
+    return array(true, '');
+}
+
+/** 直近のChatwork通知の失敗を控える（設定画面に出す。全ページ読み込みには載せない） */
+function fs_record_chatwork_error($msg) {
+    $msg = mb_substr((string) $msg, 0, 300) . ' @ ' . current_time('mysql');
+    if (get_option('fs_chatwork_last_error') === false) {
+        add_option('fs_chatwork_last_error', $msg, '', 'no');
+    } else {
+        update_option('fs_chatwork_last_error', $msg, 'no');
+    }
+}
+
+/**
+ * リード1件ぶんの通知本文。
+ * 社内の通知フォーマットに合わせる:
+ *   ・1行目に発信元のサイト名（どこからの通知か分かるように）
+ *   ・ラベルと値は同じ行、コロンは全角
+ *   ・URLはラベルとは別の行（Chatworkでリンクとして拾われるように）
+ *
+ * ★事例不足で価格を出せなかった場合も、リードとして通知する。
+ */
+function fs_chatwork_body($ctx, $email, $res, $mkt = false) {
+    $sep  = str_repeat('-', 62);
+    $site = fs_opt('site_name', 'AI査定');
+    $loc  = trim($ctx['pref'] . ' ' . $ctx['city'] . ' ' . $ctx['district']);
+
+    $lines = array();
+    if (fs_opt('chatwork_toall', '') === '1') {
+        $lines[] = '[toall]';
+        $lines[] = $sep;
+    }
+    $lines[] = '【' . $site . '】AI査定のリードが届きました';
+    $lines[] = 'お客様メール：' . $email;
+    $lines[] = '受付日時：' . current_time('Y-m-d H:i');
+    $lines[] = $sep;
+    $lines[] = '物件種別：' . $ctx['ptype_label'];
+    $lines[] = '所在地：' . $loc;
+    $lines[] = '面積：' . $ctx['area'] . ' ㎡';
+    if (!empty($ctx['build_year']))   $lines[] = '築年：' . $ctx['build_year'] . '年';
+    if (!empty($ctx['floor_plan']))   $lines[] = '間取り：' . $ctx['floor_plan'];
+    if (!empty($ctx['station_name'])) {
+        $lines[] = '最寄駅：' . $ctx['station_name'] . (!empty($ctx['station_min']) ? ' 徒歩' . $ctx['station_min'] . '分' : '');
+    }
+    if (!empty($ctx['purpose'])) $lines[] = '利用目的：' . $ctx['purpose'];
+    $lines[] = $sep;
+    if (!empty($res['ok'])) {
+        $lines[] = 'お客様に提示した参考価格：' . fs_yen_man($res['low']) . ' 〜 ' . fs_yen_man($res['high'])
+                 . '（中央値 ' . fs_yen_man($res['mid']) . '）';
+        $lines[] = '使用事例：' . $res['sample_size'] . '件';
+        if (!empty($res['low_confidence'])) {
+            $lines[] = '※条件の近い事例が不足しており、精度の低い査定です。フォローの際はご注意ください。';
+        }
+    } else {
+        $lines[] = 'お客様に提示した参考価格：算出できず（事例不足）';
+        if (!empty($res['reason'])) $lines[] = '理由：' . $res['reason'];
+        $lines[] = '※価格は出せていませんが、お客様の情報は届いています。';
+    }
+    $lines[] = $sep;
+    $lines[] = '営業連絡：' . ($mkt ? '希望あり' : '希望なし ※今回の対応以外の営業メールは送らないでください');
+    $lines[] = $sep;
+    $lines[] = '▼査定結果・顧客情報はこちら';
+    $lines[] = admin_url('admin.php?page=fudosan-satei-leads');
+    $lines[] = $sep;
+    return implode("\n", $lines);
+}
+
 function fs_admin_notify_body($ctx, $email, $res, $mkt = false) {
     $loc = trim($ctx['pref'] . ' ' . $ctx['city'] . ' ' . $ctx['district']);
     $b = array();
@@ -1269,6 +1451,32 @@ function fs_mail_subject() {
 }
 
 /* テストメール送信（迷惑メール判定・文面の確認用） */
+add_action('admin_post_fs_test_chatwork', 'fs_test_chatwork');
+function fs_test_chatwork() {
+    if (!current_user_can('manage_options')) wp_die('権限がありません');
+    check_admin_referer('fs_test_chatwork');
+
+    $body = "[テスト投稿]\n" . fs_chatwork_body(array(
+        'ptype_label' => '中古マンション',
+        'pref' => '岡山県', 'city' => '岡山市北区', 'district' => '表町',
+        'area' => '70', 'build_year' => '2015', 'floor_plan' => '3LDK',
+        'station_name' => '県庁通り', 'station_min' => '5',
+        'purpose' => '売却を検討している',
+    ), 'test@example.com', array(
+        'ok' => true, 'low' => 21000000, 'mid' => 23500000, 'high' => 26000000, 'sample_size' => 24,
+    ), false);
+
+    list($ok, $err) = fs_chatwork_post($body);
+    if ($ok) {
+        delete_option('fs_chatwork_last_error');
+    } else {
+        fs_record_chatwork_error($err);
+    }
+    // エラー文はURLに載せない（トークンの断片が混ざることがある）。控えから読む
+    wp_safe_redirect(admin_url('admin.php?page=fudosan-satei&cwtest=' . ($ok ? '1' : '0')));
+    exit;
+}
+
 add_action('admin_post_fs_test_mail', 'fs_test_mail');
 /**
  * テストメールの宛先。指定があればそこへ、無ければログイン中のユーザー宛。
@@ -1442,6 +1650,16 @@ function fs_ajax() {
                 'station_name' => $sname, 'station_min' => $smin, 'purpose' => $purpose,
             );
             wp_mail($notify, '【AI査定】新しい査定リードが届きました', fs_admin_notify_body($nctx, $email, $res, $mkt), $nheaders);
+        }
+
+        // Chatwork通知。★失敗してもリードは失わない（通知の都合でお客様の情報を捨てない）
+        if (fs_chatwork_ready()) {
+            list($cw_ok, $cw_err) = fs_chatwork_post(fs_chatwork_body($nctx, $email, $res, $mkt));
+            if (!$cw_ok) {
+                fs_record_chatwork_error($cw_err);   // 設定画面で気づけるように控える
+            } else {
+                delete_option('fs_chatwork_last_error');
+            }
         }
     }
 
