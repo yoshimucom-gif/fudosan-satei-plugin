@@ -2,7 +2,7 @@
 /**
  * Plugin Name: かんたん不動産AI査定
  * Description: 匿名の不動産価格査定フォーム。国交省「不動産情報ライブラリ」の実成約事例から参考価格レンジを算出し、結果をメール送信＋リード保存。ショートコード [fudosan_satei] をページに貼るだけ。
- * Version: 1.22.0
+ * Version: 1.22.1
  * Author: (運営者)
  * License: GPLv2 or later
  * Text Domain: fudosan-satei
@@ -14,7 +14,7 @@
 
 if (!defined('ABSPATH')) exit; // 直接アクセス禁止
 
-define('FS_VER', '1.22.0');
+define('FS_VER', '1.22.1');
 define('FS_OPT', 'fudosan_satei_options');
 define('FS_ENDPOINT', 'https://www.reinfolib.mlit.go.jp/ex-api/external/XIT001');
 
@@ -1367,7 +1367,7 @@ function fs_chatwork_body($ctx, $email, $res, $mkt = false) {
         $lines[] = '[toall]';
         $lines[] = $sep;
     }
-    $lines[] = '【' . $site . '】AI査定のリードが届きました';
+    $lines[] = '【' . $site . '】匿名査定の利用がありました。';
     $lines[] = 'お客様メール：' . $email;
     $lines[] = '受付日時：' . current_time('Y-m-d H:i');
     $lines[] = $sep;

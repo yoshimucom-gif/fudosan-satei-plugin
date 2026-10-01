@@ -1,6 +1,6 @@
 {
   "name": "かんたん不動産AI査定",
-  "version": "1.22.0",
+  "version": "1.22.1",
   "download_url": "https://raw.githubusercontent.com/yoshimucom-gif/fudosan-satei-plugin/main/fudosan-satei.zip",
   "requires": "5.8",
   "tested": "6.7",
@@ -8,6 +8,6 @@
   "author": "ミカタ株式会社",
   "homepage": "https://github.com/yoshimucom-gif/fudosan-satei-plugin",
   "sections": {
-    "changelog": "1.22.0\n・査定リードが入ったらChatworkにも通知できるように（設定→基本設定→「Chatwork通知」）。APIトークンとルームIDを入れ、「テスト投稿を送る」で確認できます\n・事例不足で価格を出せなかった場合も「リードはリード」として通知します（お客様に提示した価格の代わりに、算出できなかった理由を載せます）\n・Chatworkへの通知が失敗してもリードは失いません。失敗したときは設定画面に理由が出ます\n・APIトークンは画面に表示しません（変更するときだけ入力。空欄で保存すると今の設定のまま）"
+    "changelog": "1.22.1\n・Chatwork通知のタイトルを「匿名査定の利用がありました。」に変更"
   }
 }
