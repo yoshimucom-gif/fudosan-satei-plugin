@@ -2,7 +2,7 @@
 /**
  * Plugin Name: かんたん不動産AI査定
  * Description: 匿名の不動産価格査定フォーム。国交省「不動産情報ライブラリ」の実成約事例から参考価格レンジを算出し、結果をメール送信＋リード保存。ショートコード [fudosan_satei] をページに貼るだけ。
- * Version: 1.22.1
+ * Version: 1.23.0
  * Author: (運営者)
  * License: GPLv2 or later
  * Text Domain: fudosan-satei
@@ -14,7 +14,7 @@
 
 if (!defined('ABSPATH')) exit; // 直接アクセス禁止
 
-define('FS_VER', '1.22.1');
+define('FS_VER', '1.23.0');
 define('FS_OPT', 'fudosan_satei_options');
 define('FS_ENDPOINT', 'https://www.reinfolib.mlit.go.jp/ex-api/external/XIT001');
 
@@ -63,6 +63,10 @@ function fs_activate() {
         high BIGINT NULL,
         sample_size INT NULL,
         marketing_opt_in TINYINT(1) DEFAULT 0,
+        src_ref VARCHAR(255) NULL,
+        src_land VARCHAR(255) NULL,
+        src_utm VARCHAR(191) NULL,
+        src_page VARCHAR(255) NULL,
         PRIMARY KEY  (id)
     ) $charset;";
     require_once ABSPATH . 'wp-admin/includes/upgrade.php';
@@ -83,6 +87,10 @@ function fs_ensure_columns() {
         'district'     => 'VARCHAR(100) NULL',
         'station_min'  => 'INT NULL',
         'purpose'      => 'VARCHAR(50) NULL',
+        'src_ref'      => 'VARCHAR(255) NULL',
+        'src_land'     => 'VARCHAR(255) NULL',
+        'src_utm'      => 'VARCHAR(191) NULL',
+        'src_page'     => 'VARCHAR(255) NULL',
     );
     foreach ($need as $c => $def) {
         if (!in_array($c, $cols, true)) {
@@ -123,7 +131,75 @@ function fs_opt($key, $default = '') {
 function fs_trim_len($s, $max) {
     $s = (string)$s;
     if ($s === '') return $s;
-    return function_exists('mb_substr') ? mb_substr($s, 0, $max) : substr($s, 0, $max);
+    if (function_exists('mb_substr')) return mb_substr($s, 0, $max);
+    // mbstring の無いサーバー。substr はバイトで切る＝日本語の途中で切れて壊れた文字になり、
+    // 保存が失敗してリードが消える。PCRE の u フラグで「文字数」で切る
+    return preg_match('/^.{0,' . (int)$max . '}/us', $s, $m) ? $m[0] : '';
+}
+
+/* =========================================================================
+ * 流入元の記録（どこから来た人の申し込みか）
+ * 訪問の入口で「参照元・最初に見たページ・utm」をブラウザに覚えさせ、申し込み時に一緒に送る。
+ * 査定書作成受付と同じ保存キー（fudosan_lead_src）を使う＝両方入っていても1回だけ動き、同じ値を読む。
+ * 参照元はドメインとパスだけ残す（検索語などのクエリは個人情報になり得るので捨てる）。
+ * 新しい外部の参照元かutm付きで来たら上書きし、サイト内の移動や直接の再訪では上書きしない（30日で失効）。
+ * ======================================================================= */
+add_action('wp_head', 'fs_src_tracker', 1);
+function fs_src_tracker() {
+    if (is_admin()) return;
+    echo "<script>" . fs_src_tracker_js() . "</script>\n";
+}
+
+function fs_src_tracker_js() {
+    return <<<'JS'
+(function(){if(window.__fudosanSrc)return;window.__fudosanSrc=1;try{var K='fudosan_lead_src',now=Date.now(),dec=function(s){try{return decodeURIComponent(s);}catch(e){return s;}};var q=new URLSearchParams(location.search),utm=q.get('utm_source')?[q.get('utm_source'),q.get('utm_medium')||'',q.get('utm_campaign')||''].join(' / '):'';var ref='',host='';if(document.referrer){try{var u=new URL(document.referrer);host=u.hostname;ref=u.protocol+'//'+u.host+dec(u.pathname);}catch(e){}}var ext=host&&host!==location.hostname;var cur=null;try{cur=JSON.parse(localStorage.getItem(K)||'null');}catch(e){}if(cur&&now-cur.t>2592e6)cur=null;if(!cur||ext||utm){var inner=!cur&&!ext&&!utm&&host!=='';cur={t:now,ref:(ext||inner)?ref:'',land:inner?dec(new URL(document.referrer).pathname):dec(location.pathname),utm:utm};try{localStorage.setItem(K,JSON.stringify(cur));}catch(e){}}window.__fudosanSrcData=cur;}catch(e){}})();
+JS;
+}
+
+/* 申し込みと一緒に送られてきた流入元。カラム長に丸める（超えるとinsertが失敗してリードが消える） */
+function fs_src_from_post() {
+    $get = function ($k, $max) {
+        $v = isset($_POST[$k]) ? sanitize_text_field(wp_unslash($_POST[$k])) : '';
+        return fs_trim_len($v, $max);
+    };
+    return array(
+        'src_ref'  => $get('src_ref', 255),
+        'src_land' => $get('src_land', 255),
+        'src_utm'  => $get('src_utm', 191),
+        'src_page' => $get('src_page', 255),
+    );
+}
+
+/* 参照元を人が読める言葉にする（検索・AI・他サイト・直接） */
+function fs_src_label($s) {
+    $s = (array) $s;
+    if (empty($s['src_land'])) return '不明（記録なし）';
+    if (!empty($s['src_utm'])) return 'キャンペーン（' . $s['src_utm'] . '）';
+    $host = !empty($s['src_ref']) ? strtolower((string) parse_url($s['src_ref'], PHP_URL_HOST)) : '';
+    if ($host === '') return '直接（ブックマーク・URL入力・アプリ内など）';
+    // 記録処理の無いページ（別のWPで動く /setagaya/ など）から移ってきた。入口はその直前のページ
+    if ($host === strtolower((string) parse_url(home_url('/'), PHP_URL_HOST))) return 'サイト内の別ページから（その前は不明）';
+    // 前から順に判定する（gemini.google を google より先に）
+    $map = array(
+        'gemini.google' => 'AI（Gemini）', 'chatgpt.com' => 'AI（ChatGPT）', 'openai.com' => 'AI（ChatGPT）',
+        'perplexity.ai' => 'AI（Perplexity）', 'copilot' => 'AI（Copilot）',
+        'google.' => '検索（Google）', 'yahoo.' => '検索（Yahoo!）', 'bing.com' => '検索（Bing）',
+        'duckduckgo.' => '検索（DuckDuckGo）',
+    );
+    foreach ($map as $needle => $label) {
+        if (strpos($host, $needle) !== false) return $label;
+    }
+    return '他サイト（' . $host . '）';
+}
+
+/* 通知に載せる行 */
+function fs_src_lines($s, $sep = '：') {
+    $s = (array) $s;
+    $lines = array('流入元' . $sep . fs_src_label($s));
+    if (!empty($s['src_ref']))  $lines[] = '参照元URL' . $sep . $s['src_ref'];
+    if (!empty($s['src_land'])) $lines[] = '最初に見たページ' . $sep . $s['src_land'];
+    if (!empty($s['src_page'])) $lines[] = '申し込んだページ' . $sep . $s['src_page'];
+    return $lines;
 }
 
 function fs_client_ip() {
@@ -780,11 +856,12 @@ function fs_leads_page() {
     if ($dberr) echo '<div class="notice notice-error"><p><strong>直近に保存エラーが発生しました：</strong> ' . esc_html($dberr) . '<br>最新版に更新すると自動修復を試みます。次の査定で解消されない場合は、この赤いメッセージの文面を共有してください。</p></div>';
     echo '<p>登録数：' . $total . ' 件（表示は最新200件）　<a class="button button-primary" href="' . esc_url($export) . '">CSVエクスポート（Excel）</a></p>';
     echo '<table class="widefat striped"><thead><tr>';
-    echo '<th>日時</th><th>メール</th><th>利用目的</th><th>所在地</th><th>種別</th><th>面積</th><th>間取り</th><th>築年</th><th>最寄駅</th><th>レンジ(万円)</th><th>事例数</th><th>営業可</th><th>操作</th></tr></thead><tbody>';
+    echo '<th>日時</th><th>メール</th><th>利用目的</th><th>所在地</th><th>種別</th><th>面積</th><th>間取り</th><th>築年</th><th>最寄駅</th><th>レンジ(万円)</th><th>事例数</th><th>営業可</th><th>流入元</th><th>操作</th></tr></thead><tbody>';
     if ($rows) foreach ($rows as $r) {
         $st = trim((isset($r->station_name) ? $r->station_name : '') . (!empty($r->station_min) ? " 徒歩{$r->station_min}分" : ''));
         $del = wp_nonce_url(admin_url('admin-post.php?action=fs_delete_lead&id=' . $r->id), 'fs_delete_lead_' . $r->id);
-        printf('<tr><td>%s</td><td>%s</td><td>%s</td><td>%s %s %s</td><td>%s</td><td>%s㎡</td><td>%s</td><td>%s</td><td>%s</td><td>%s〜%s</td><td>%s</td><td>%s</td><td><a href="%s" onclick="return confirm(\'このリードを削除しますか？\')" style="color:#b32d2e">削除</a></td></tr>',
+        $src = fs_src_label($r) . (!empty($r->src_land) ? "\n入口 " . $r->src_land : '') . (!empty($r->src_page) ? "\n申込 " . $r->src_page : '');
+        printf('<tr><td>%s</td><td>%s</td><td>%s</td><td>%s %s %s</td><td>%s</td><td>%s㎡</td><td>%s</td><td>%s</td><td>%s</td><td>%s〜%s</td><td>%s</td><td>%s</td><td style="white-space:pre-line;font-size:12px;line-height:1.5">%s</td><td><a href="%s" onclick="return confirm(\'このリードを削除しますか？\')" style="color:#b32d2e">削除</a></td></tr>',
             esc_html($r->created_at), esc_html($r->email),
             esc_html((isset($r->purpose) && $r->purpose !== '') ? $r->purpose : '-'),
             esc_html($r->pref), esc_html($r->city),
@@ -792,8 +869,8 @@ function fs_leads_page() {
             esc_html($r->ptype), esc_html($r->area), esc_html((isset($r->floor_plan) && $r->floor_plan !== '') ? $r->floor_plan : '-'), esc_html($r->build_year ?: '-'),
             esc_html($st !== '' ? $st : '-'),
             $r->low ? number_format($r->low/10000) : '-', $r->high ? number_format($r->high/10000) : '-',
-            esc_html($r->sample_size), $r->marketing_opt_in ? '○' : '', esc_url($del));
-    } else echo '<tr><td colspan="13">まだありません</td></tr>';
+            esc_html($r->sample_size), $r->marketing_opt_in ? '○' : '', esc_html($src), esc_url($del));
+    } else echo '<tr><td colspan="14">まだありません</td></tr>';
     echo '</tbody></table></div>';
 }
 
@@ -819,11 +896,12 @@ function fs_export_leads() {
     header('Content-Type: text/csv; charset=Shift_JIS');
     header('Content-Disposition: attachment; filename="satei_leads.csv"');
     $out = fopen('php://output', 'w');
-    $head = array('ID','日時','メール','利用目的','都道府県','市区町村','地区','種別','面積','間取り','築年','最寄駅','徒歩分','下限(円)','中央(円)','上限(円)','事例数','営業同意');
-    $cols = array('id','created_at','email','purpose','pref','city','district','ptype','area','floor_plan','build_year','station_name','station_min','low','mid','high','sample_size','marketing_opt_in');
+    $head = array('ID','日時','メール','利用目的','都道府県','市区町村','地区','種別','面積','間取り','築年','最寄駅','徒歩分','下限(円)','中央(円)','上限(円)','事例数','営業同意','流入元','参照元URL','最初に見たページ','申し込んだページ','utm');
+    $cols = array('id','created_at','email','purpose','pref','city','district','ptype','area','floor_plan','build_year','station_name','station_min','low','mid','high','sample_size','marketing_opt_in','src_label','src_ref','src_land','src_page','src_utm');
     $sjis = function ($s) { return mb_convert_encoding((string)$s, 'SJIS-win', 'UTF-8'); };
     fputcsv($out, array_map($sjis, $head));
     foreach ($rows as $r) {
+        $r['src_label'] = fs_src_label($r);
         $line = array();
         foreach ($cols as $c) $line[] = $sjis(fs_csv_safe(isset($r[$c]) ? $r[$c] : ''));
         fputcsv($out, $line);
@@ -1393,6 +1471,10 @@ function fs_chatwork_body($ctx, $email, $res, $mkt = false) {
         if (!empty($res['reason'])) $lines[] = '理由：' . $res['reason'];
         $lines[] = '※価格は出せていませんが、お客様の情報は届いています。';
     }
+    if (isset($ctx['src'])) {
+        $lines[] = $sep;
+        foreach (fs_src_lines($ctx['src']) as $ln) $lines[] = $ln;
+    }
     $lines[] = $sep;
     $lines[] = '営業連絡：' . ($mkt ? '希望あり' : '希望なし ※今回の対応以外の営業メールは送らないでください');
     $lines[] = $sep;
@@ -1437,6 +1519,10 @@ function fs_admin_notify_body($ctx, $email, $res, $mkt = false) {
         $b[] = "─────────────────────";
         $b[] = "";
         $b[] = "※自動査定が出せていないため、個別対応のチャンスです。";
+    }
+    if (isset($ctx['src'])) {
+        $b[] = "";
+        foreach (fs_src_lines($ctx['src'], ' : ') as $ln) $b[] = '■ ' . $ln;
     }
     $b[] = "";
     $b[] = "管理画面「不動産AI査定 → 査定結果・顧客情報」からも確認できます。";
@@ -1608,8 +1694,9 @@ function fs_ajax() {
     $sname = fs_trim_len($sname, 100);
     $fplan = fs_trim_len($fplan, 30);
     $district = fs_trim_len($district, 100);
+    $src = fs_src_from_post();
 
-    $ins = $wpdb->insert($wpdb->prefix . 'fudosan_satei_leads', array(
+    $ins = $wpdb->insert($wpdb->prefix . 'fudosan_satei_leads', $src + array(
         'created_at' => current_time('mysql'), 'email' => $email,
         'pref' => $pref_name, 'city' => $city_name, 'ptype' => $ptype,
         'area' => $area, 'build_year' => $byear, 'station_min' => $smin,
@@ -1621,7 +1708,7 @@ function fs_ajax() {
         // 保存失敗を記録し、カラム不足なら自己修復して1回だけ再試行
         update_option('fs_last_db_error', $wpdb->last_error . ' @ ' . current_time('mysql'));
         fs_ensure_columns();
-        $wpdb->insert($wpdb->prefix . 'fudosan_satei_leads', array(
+        $wpdb->insert($wpdb->prefix . 'fudosan_satei_leads', $src + array(
             'created_at' => current_time('mysql'), 'email' => $email,
             'pref' => $pref_name, 'city' => $city_name, 'ptype' => $ptype,
             'area' => $area, 'build_year' => $byear, 'station_min' => $smin,
@@ -1648,6 +1735,7 @@ function fs_ajax() {
                 'ptype_label' => $label, 'pref' => $pref_name, 'city' => $city_name, 'district' => $district,
                 'area' => $area, 'build_year' => $byear, 'floor_plan' => $fplan,
                 'station_name' => $sname, 'station_min' => $smin, 'purpose' => $purpose,
+                'src' => $src,
             );
             wp_mail($notify, '【AI査定】新しい査定リードが届きました', fs_admin_notify_body($nctx, $email, $res, $mkt), $nheaders);
         }
@@ -2101,6 +2189,20 @@ function fs_shortcode($atts = array()) {
   var SENDING = false;          // 送信中フラグ（二重送信の防止）
   var SUBMIT_LABEL = null;      // ボタンの元の文言（送信後に既定文へ化けさせない）
   var WRAP_ID = <?php echo wp_json_encode($uid); ?>;
+
+  /* 流入元（wp_head の記録処理がブラウザに覚えさせた値）を申し込みに添える。
+     保存できないブラウザでも、記録処理がその場で作った値（__fudosanSrcData）を使う。 */
+  function appendSrc(fd){
+    var s = window.__fudosanSrcData || null;
+    if (!s) { try { s = JSON.parse(localStorage.getItem('fudosan_lead_src') || 'null'); } catch (e) {} }
+    s = s || {};
+    var page = location.pathname;
+    try { page = decodeURIComponent(page); } catch (e) {}
+    fd.set('src_ref', s.ref || '');
+    fd.set('src_land', s.land || '');
+    fd.set('src_utm', s.utm || '');
+    fd.set('src_page', page);
+  }
   var TEASER = <?php echo $teaser ? 'true' : 'false'; ?>;
   var TARGET = <?php echo wp_json_encode($target); ?>;
   /* ★引き継ぎ値は「URLからだけ」読む。サーバー側の値は一切使わない。
@@ -2377,6 +2479,7 @@ function fs_shortcode($atts = array()) {
     fd.append('action', 'fudosan_satei');
     fd.append('nonce', NONCE);
     fd.append('fs_elapsed', String(Date.now() - LOADED_AT));   // 表示から送信までの経過ms（ボット判定）
+    appendSrc(fd);
 
     /* ページキャッシュで古いnonceが配られていると 403 になる。
        その場合だけ新しいnonceを取り直して1回だけ送り直す（お客様には気づかせない）。 */
@@ -2412,6 +2515,8 @@ function fs_shortcode($atts = array()) {
           errBox.scrollIntoView({ behavior:'smooth', block:'center' });   // 画面外だと「無反応」に見えて連打される
           return;
         }
+        // 事例不足でもリードは保存されている＝申し込み1件としてGA4に送る
+        try { if (typeof window.gtag === 'function') window.gtag('event', 'generate_lead', { lead_form: 'tokumei_satei' }); } catch (e) {}
         renderResult(d);
       })
       .catch(function(){

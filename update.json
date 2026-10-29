@@ -1,6 +1,6 @@
 {
   "name": "かんたん不動産AI査定",
-  "version": "1.22.1",
+  "version": "1.23.0",
   "download_url": "https://raw.githubusercontent.com/yoshimucom-gif/fudosan-satei-plugin/main/fudosan-satei.zip",
   "requires": "5.8",
   "tested": "6.7",
@@ -8,6 +8,6 @@
   "author": "ミカタ株式会社",
   "homepage": "https://github.com/yoshimucom-gif/fudosan-satei-plugin",
   "sections": {
-    "changelog": "1.22.1\n・Chatwork通知のタイトルを「匿名査定の利用がありました。」に変更"
+    "changelog": "1.23.0\n・申し込みごとに流入元（検索・AI・他サイト・直接・utm）、最初に見たページ、申し込んだページを記録し、担当者メール・Chatwork・一覧・CSVに表示するようにしました\n・申し込み完了時にGA4へ generate_lead イベントを送るようにしました\n・mbstringの無いサーバーで、長い日本語を切り詰めると文字が壊れて保存に失敗する不具合を修正しました"
   }
 }
