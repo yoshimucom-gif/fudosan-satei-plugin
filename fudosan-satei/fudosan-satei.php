@@ -2,7 +2,7 @@
 /**
  * Plugin Name: かんたん不動産AI査定
  * Description: 匿名の不動産価格査定フォーム。国交省「不動産情報ライブラリ」の実成約事例から参考価格レンジを算出し、結果をメール送信＋リード保存。ショートコード [fudosan_satei] をページに貼るだけ。
- * Version: 1.23.0
+ * Version: 1.23.1
  * Author: (運営者)
  * License: GPLv2 or later
  * Text Domain: fudosan-satei
@@ -14,7 +14,7 @@
 
 if (!defined('ABSPATH')) exit; // 直接アクセス禁止
 
-define('FS_VER', '1.23.0');
+define('FS_VER', '1.23.1');
 define('FS_OPT', 'fudosan_satei_options');
 define('FS_ENDPOINT', 'https://www.reinfolib.mlit.go.jp/ex-api/external/XIT001');
 
@@ -481,12 +481,12 @@ function fs_guide_body() {
         '{operator_contact}' => fs_opt('operator_contact', ''),
     );
     if ($link === '') {   // URL未設定：リンク行を丸ごと落として空行を残さない
-        $tmpl = preg_replace('/^.*\{guide_link\}.*\R?/m', '', $tmpl);
-        $tmpl = preg_replace('/^.*\{guide_url\}.*\R?/m', '', $tmpl);
+        $tmpl = preg_replace('/^.*\{guide_link\}.*(?:\r\n|\r|\n)?/m', '', $tmpl);
+        $tmpl = preg_replace('/^.*\{guide_url\}.*(?:\r\n|\r|\n)?/m', '', $tmpl);
     }
     // 運営者名・連絡先が未設定なら、そのタグを含む行ごと落とす（「担当：」だけの空行を残さない）
-    if (fs_opt('operator_name', '') === '')    $tmpl = preg_replace('/^.*\{operator_name\}.*\R?/m', '', $tmpl);
-    if (fs_opt('operator_contact', '') === '') $tmpl = preg_replace('/^.*\{operator_contact\}.*\R?/m', '', $tmpl);
+    if (fs_opt('operator_name', '') === '')    $tmpl = preg_replace('/^.*\{operator_name\}.*(?:\r\n|\r|\n)?/m', '', $tmpl);
+    if (fs_opt('operator_contact', '') === '') $tmpl = preg_replace('/^.*\{operator_contact\}.*(?:\r\n|\r|\n)?/m', '', $tmpl);
     $body = strtr($tmpl, $repl);
     $body = preg_replace("/\n{3,}/", "\n\n", $body);   // 空行が3つ以上続いたら2つに詰める
     return rtrim($body) . "\n";
@@ -1271,8 +1271,8 @@ function fs_mail_body($ctx) {
         '{operator_contact}' => fs_opt('operator_contact', ''),
     );
     // 未設定の項目で「お問い合わせ: 」のようにラベルだけが残らないよう、その行ごと落とす
-    if (trim($repl['{operator_contact}']) === '') $tmpl = preg_replace('/^.*\{operator_contact\}.*\R?/m', '', $tmpl);
-    if (trim($repl['{operator_name}'])    === '') $tmpl = preg_replace('/^\h*\{operator_name\}\h*\R?/m', '', $tmpl);
+    if (trim($repl['{operator_contact}']) === '') $tmpl = preg_replace('/^.*\{operator_contact\}.*(?:\r\n|\r|\n)?/m', '', $tmpl);
+    if (trim($repl['{operator_name}'])    === '') $tmpl = preg_replace('/^\h*\{operator_name\}\h*(?:\r\n|\r|\n)?/m', '', $tmpl);
     // 土地・戸建ての注意文言も、テンプレート編集で消せないよう本文の外で必ず付ける。
     // 差し込み先は {property_details} の直後＝価格や物件情報のすぐ下（署名より前に置く）
     $caution = fs_type_caution(isset($ctx['ptype']) ? $ctx['ptype'] : '');
