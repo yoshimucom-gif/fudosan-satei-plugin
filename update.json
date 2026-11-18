@@ -1,6 +1,6 @@
 {
   "name": "かんたん不動産AI査定",
-  "version": "1.23.1",
+  "version": "1.24.0",
   "download_url": "https://raw.githubusercontent.com/yoshimucom-gif/fudosan-satei-plugin/main/fudosan-satei.zip",
   "requires": "5.8",
   "tested": "6.7",
@@ -8,6 +8,6 @@
   "author": "ミカタ株式会社",
   "homepage": "https://github.com/yoshimucom-gif/fudosan-satei-plugin",
   "sections": {
-    "changelog": "1.23.1\n・お客様が書いた文章の一部が「?」に化けることがある不具合を修正（幅・公・装・先・情・入などの文字）"
+    "changelog": "1.24.0\n・スマホで記事を読んでいるとき、画面下から匿名査定と査定書作成の入口を出すようにしました"
   }
 }

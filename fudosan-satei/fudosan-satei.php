@@ -2,7 +2,7 @@
 /**
  * Plugin Name: かんたん不動産AI査定
  * Description: 匿名の不動産価格査定フォーム。国交省「不動産情報ライブラリ」の実成約事例から参考価格レンジを算出し、結果をメール送信＋リード保存。ショートコード [fudosan_satei] をページに貼るだけ。
- * Version: 1.23.1
+ * Version: 1.24.0
  * Author: (運営者)
  * License: GPLv2 or later
  * Text Domain: fudosan-satei
@@ -14,7 +14,7 @@
 
 if (!defined('ABSPATH')) exit; // 直接アクセス禁止
 
-define('FS_VER', '1.23.1');
+define('FS_VER', '1.24.0');
 define('FS_OPT', 'fudosan_satei_options');
 define('FS_ENDPOINT', 'https://www.reinfolib.mlit.go.jp/ex-api/external/XIT001');
 
@@ -34,6 +34,9 @@ if (is_admin() || (defined('DOING_CRON') && DOING_CRON) || (defined('WP_CLI') &&
     require_once __DIR__ . '/includes/plugin-updater.php';
     new FS_Satei_Updater(__FILE__, FS_UPDATE_URL);
 }
+
+/* スマホ下固定CTA（匿名査定／査定書の作成）。どのページに出すかは includes/spcta.php 側で判定する */
+require_once __DIR__ . '/includes/spcta.php';
 
 /* =========================================================================
  * 1. 有効化: リード保存テーブル作成
